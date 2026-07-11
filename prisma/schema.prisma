@@ -1,0 +1,115 @@
+// DataCube Tracker — Prisma schema
+// Dev: SQLite (ไม่ต้องติดตั้งอะไร) | Production: เปลี่ยน provider เป็น "postgresql"
+// หมายเหตุ: ใช้ String แทน enum เพื่อให้รองรับทั้ง SQLite และ PostgreSQL
+// ค่าที่ใช้ได้ถูกกำหนดไว้ที่ src/lib/constants.ts
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Supabase: Transaction pooler (port 6543)
+  directUrl = env("DIRECT_URL")   // Supabase: Direct connection (port 5432) ใช้ตอน db push
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  username           String   @unique
+  passwordHash       String
+  name               String
+  avatarUrl          String?
+  mustChangePassword Boolean  @default(true) // บังคับเปลี่ยนรหัสผ่านครั้งแรก
+  createdAt          DateTime @default(now())
+  notifications      Notification[]
+  activities         ActivityLog[]
+  assignedTickets Ticket[] @relation("Assignee")
+  createdTickets  Ticket[] @relation("Creator")
+  comments        Comment[]
+  subtasks        Subtask[] @relation("SubtaskAssignee")
+  attachments     Attachment[]
+}
+
+model Ticket {
+  id             String    @id @default(cuid())
+  number         Int       @unique // เลขงานสำหรับแสดงเป็น TCUBE-001
+  title          String
+  bu             String    @default("") // กลุ่ม BU ลูกค้า (ดู BUSINESS_UNITS ใน constants.ts)
+  customer       String
+  description    String?
+  status         String    @default("NEW")       // NEW | ASSIGNED | IN_PROGRESS | REVIEW | DONE
+  priority       String    @default("MEDIUM")    // LOW | MEDIUM | HIGH | URGENT
+  jobType        String                          // ดู JOB_TYPES ใน constants.ts
+  contactChannel String                          // ดู CHANNELS ใน constants.ts
+  contactInfo    String?
+  dueDate        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  assignee       User?     @relation("Assignee", fields: [assigneeId], references: [id])
+  assigneeId     String?
+  createdBy      User      @relation("Creator", fields: [createdById], references: [id])
+  createdById    String
+  comments       Comment[]
+  subtasks       Subtask[]
+  attachments    Attachment[]
+}
+
+// การแจ้งเตือน (แท็ก / มอบหมายงาน)
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  message   String
+  url       String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// บันทึกการใช้งานทั้งหมด (ใครทำอะไร เมื่อไหร่)
+model ActivityLog {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  action    String
+  detail    String
+  createdAt DateTime @default(now())
+}
+
+// ไฟล์แนบและลิงก์ของแต่ละ ticket
+model Attachment {
+  id         String   @id @default(cuid())
+  kind       String   // "file" | "link"
+  name       String
+  url        String
+  createdAt  DateTime @default(now())
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId   String
+  uploader   User     @relation(fields: [uploaderId], references: [id])
+  uploaderId String
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId  String?
+}
+
+// งานย่อย (Subitems) ใต้แต่ละ ticket
+model Subtask {
+  id         String    @id @default(cuid())
+  title      String
+  done       Boolean   @default(false)
+  dueDate    DateTime?
+  createdAt  DateTime  @default(now())
+  ticket     Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId   String
+  assignee   User?     @relation("SubtaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId String?
+}
+
+model Comment {
+  id          String       @id @default(cuid())
+  body        String
+  createdAt   DateTime     @default(now())
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId    String
+  author      User         @relation(fields: [authorId], references: [id])
+  authorId    String
+  attachments Attachment[]
+}
