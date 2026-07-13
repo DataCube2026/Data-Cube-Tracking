@@ -8,19 +8,39 @@ const day = 24 * 60 * 60 * 1000;
 async function main() {
   const password = await bcrypt.hash("datacube123", 10);
 
-  // ทีมงาน 2 คน — เพิ่มสมาชิกคนอื่นได้ที่หน้า "ทีมงาน" ในระบบ
+  // ทีมงาน 2 คน (แอดมินทั้งคู่) — เพิ่มสมาชิกคนอื่นได้ที่หน้า "ทีมงาน"
   const [amm, eak] = await Promise.all(
     [
-      { username: "amm", name: "Amm" },
-      { username: "eak", name: "Dr.Eak" },
+      { username: "amm", name: "Amm", role: "ADMIN" },
+      { username: "eak", name: "Dr.Eak", role: "ADMIN" },
     ].map((u) =>
       prisma.user.upsert({
         where: { username: u.username },
-        update: { name: u.name },
+        update: { name: u.name, role: u.role },
         create: { ...u, passwordHash: password },
       })
     )
   );
+
+  // กลุ่ม BU ลูกค้า 9 กลุ่ม (จัดการเพิ่ม/ลด/เปิดปิดได้ที่หน้า "ทีมงาน")
+  const BUS = [
+    "Jaymart Mobile (JMB)",
+    "JElite (JPoint)",
+    "Brewing Happiness (BH)",
+    "JAS Asset (JAS)",
+    "SG Capital (SGC)",
+    "Rawmat Coffee (RMC)",
+    "CEO Business (Gen II)",
+    "Jaymart Holding (JMH)",
+    "Jaymart (JMT)",
+  ];
+  for (const name of BUS) {
+    await prisma.businessUnit.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+  }
 
   const count = await prisma.ticket.count();
   if (count === 0) {
