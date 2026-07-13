@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addComment } from "@/lib/actions";
 import { IconPaperclip } from "@/components/Icons";
+import { toast } from "@/components/Toaster";
 
 type U = { id: string; username: string; name: string };
 
@@ -88,6 +89,7 @@ export function CommentBox({
         if (fileRef.current) fileRef.current.value = "";
         setFileNames([]);
         router.refresh();
+        toast("โพสต์อัปเดตเรียบร้อยแล้ว");
       }}
       className="relative mb-4 space-y-2"
     >

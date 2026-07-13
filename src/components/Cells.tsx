@@ -9,6 +9,7 @@ import {
   setTicketPriority,
   setTicketAssignee,
 } from "@/lib/actions";
+import { toast } from "@/components/Toaster";
 
 type UserOption = { id: string; name: string };
 
@@ -65,6 +66,7 @@ export function StatusCell({
             onClick={() => {
               setOpen(false);
               setVal(o.value); // เปลี่ยนสีทันที
+              toast("บันทึกการแก้ไขเรียบร้อยแล้ว");
               startTransition(async () => {
                 await setTicketStatus(ticketId, o.value);
                 router.refresh();
@@ -114,6 +116,7 @@ export function PriorityCell({
             onClick={() => {
               setOpen(false);
               setVal(o.value);
+              toast("บันทึกการแก้ไขเรียบร้อยแล้ว");
               startTransition(async () => {
                 await setTicketPriority(ticketId, o.value);
                 router.refresh();
@@ -148,6 +151,7 @@ export function OwnerCell({
   const pick = (u: UserOption | null) => {
     setOpen(false);
     setVal(u); // แสดงผลทันที
+    toast(u ? `มอบหมายงานให้ ${u.name} เรียบร้อยแล้ว` : "ยกเลิกการมอบหมายแล้ว");
     startTransition(async () => {
       await setTicketAssignee(ticketId, u?.id ?? null);
       router.refresh();
@@ -229,6 +233,7 @@ export function StatusProgress({
           key={s.value}
           onClick={() => {
             setCur(s.value); // สีเปลี่ยนทันที
+            toast(`เปลี่ยนสถานะเป็น "${s.label}" เรียบร้อยแล้ว`);
             startTransition(async () => {
               await setTicketStatus(ticketId, s.value);
               router.refresh();

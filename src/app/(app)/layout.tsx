@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logout } from "@/lib/actions";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Toaster } from "@/components/Toaster";
 import {
   IconDashboard,
   IconTable,
@@ -127,6 +128,8 @@ export default async function AppLayout({
 
         <main className="ml-60 flex-1 p-7">{children}</main>
       </div>
+
+      <Toaster />
 
       {/* เวอร์ชันระบบ (เวลาที่ build) — มุมขวาล่าง */}
       <div

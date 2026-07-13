@@ -1,17 +1,53 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { updateStatus } from "@/lib/actions";
-import { STATUSES, fmtDate, isOverdue, ticketCode, buShort } from "@/lib/constants";
+import {
+  STATUSES,
+  PRIORITIES,
+  fmtDate,
+  isOverdue,
+  ticketCode,
+  buShort,
+} from "@/lib/constants";
 import { PriorityBadge, Avatar } from "@/components/Badge";
-import { IconChevronLeft, IconChevronRight } from "@/components/Icons";
+import { IconChevronLeft, IconChevronRight, IconSearch } from "@/components/Icons";
 
 export const dynamic = "force-dynamic";
 
-export default async function BoardPage() {
-  const tickets = await prisma.ticket.findMany({
-    include: { assignee: true, subtasks: { select: { done: true } } },
-    orderBy: { number: "asc" },
-  });
+type Search = { q?: string; bu?: string; priority?: string; assignee?: string };
+
+export default async function BoardPage({
+  searchParams,
+}: {
+  searchParams: Search;
+}) {
+  const { q, bu, priority, assignee } = searchParams;
+
+  const [tickets, users, busRows] = await Promise.all([
+    prisma.ticket.findMany({
+      where: {
+        ...(bu ? { bu } : {}),
+        ...(priority ? { priority } : {}),
+        ...(assignee ? { assigneeId: assignee } : {}),
+        ...(q
+          ? {
+              OR: [
+                { title: { contains: q } },
+                { customer: { contains: q } },
+                { bu: { contains: q } },
+              ],
+            }
+          : {}),
+      },
+      include: { assignee: true, subtasks: { select: { done: true } } },
+      orderBy: { number: "asc" },
+    }),
+    prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.businessUnit.findMany({
+      where: { active: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -32,6 +68,46 @@ export default async function BoardPage() {
           </Link>
         </div>
       </div>
+
+      {/* ฟิลเตอร์ + ค้นหา */}
+      <form className="flex flex-wrap items-center gap-2" method="GET">
+        <div className="relative">
+          <IconSearch
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="ค้นหางาน / ลูกค้า"
+            className="input w-52 pl-9"
+          />
+        </div>
+        <select name="bu" defaultValue={bu ?? ""} className="input max-w-44">
+          <option value="">BU: ทั้งหมด</option>
+          {busRows.map((b) => (
+            <option key={b.id} value={b.name}>{buShort(b.name)}</option>
+          ))}
+        </select>
+        <select name="priority" defaultValue={priority ?? ""} className="input max-w-44">
+          <option value="">ความสำคัญ: ทั้งหมด</option>
+          {PRIORITIES.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+        <select name="assignee" defaultValue={assignee ?? ""} className="input max-w-44">
+          <option value="">ผู้รับผิดชอบ: ทั้งหมด</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+        </select>
+        <button className="btn-secondary">กรอง</button>
+        {(q || bu || priority || assignee) && (
+          <Link href="/board" className="text-sm text-slate-400 hover:text-slate-600">
+            ล้างฟิลเตอร์
+          </Link>
+        )}
+      </form>
 
       <div className="grid gap-3 lg:grid-cols-5">
         {STATUSES.map((s, colIdx) => {

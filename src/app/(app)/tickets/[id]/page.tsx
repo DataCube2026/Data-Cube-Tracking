@@ -29,33 +29,11 @@ import {
   StatusProgress,
 } from "@/components/Cells";
 import { CommentBox } from "@/components/CommentBox";
+import { CommentThread } from "@/components/CommentThread";
 import { TicketForm } from "@/components/TicketForm";
+import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
-
-// ไฮไลต์ @mention ในข้อความอัปเดต
-function renderBody(
-  body: string,
-  users: { username: string; name: string }[]
-) {
-  const parts = body.split(/(@[\w.]+)/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("@")) {
-      const u = users.find((u) => u.username === p.slice(1));
-      if (u)
-        return (
-          <span
-            key={i}
-            className="rounded bg-brand-50 px-1 font-medium text-brand-700"
-            title={`@${u.username}`}
-          >
-            @{u.name}
-          </span>
-        );
-    }
-    return <span key={i}>{p}</span>;
-  });
-}
 
 export default async function TicketDetailPage({
   params,
@@ -69,7 +47,15 @@ export default async function TicketDetailPage({
         assignee: true,
         createdBy: true,
         comments: {
-          include: { author: true, attachments: true },
+          where: { parentId: null },
+          include: {
+            author: true,
+            attachments: true,
+            replies: {
+              include: { author: true, attachments: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
           orderBy: { createdAt: "desc" },
         },
         subtasks: { include: { assignee: true }, orderBy: { createdAt: "asc" } },
@@ -85,6 +71,7 @@ export default async function TicketDetailPage({
 
   if (!ticket) notFound();
 
+  const session = await getSession();
   const busNames = busRows.map((b) => b.name);
   const buOptions =
     ticket.bu && !busNames.includes(ticket.bu)
@@ -479,47 +466,37 @@ export default async function TicketDetailPage({
               }))}
             />
 
-            <div className="space-y-3 overflow-y-auto">
-              {ticket.comments.length === 0 && (
-                <p className="text-sm text-slate-400">
-                  ยังไม่มีอัปเดต — ทุกคนในทีมสามารถเข้ามาอัปเดตความคืบหน้าได้
-                </p>
-              )}
-              {ticket.comments.map((c) => (
-                <div key={c.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-[10px] font-semibold text-white">
-                      {c.author.name.charAt(0)}
-                    </span>
-                    <span className="text-xs font-medium text-slate-700">
-                      {c.author.name}
-                    </span>
-                    <span className="ml-auto text-xs text-slate-400">
-                      {fmtDateTime(c.createdAt)}
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm text-slate-700">
-                    {renderBody(c.body, users)}
-                  </p>
-                  {c.attachments.length > 0 && (
-                    <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
-                      {c.attachments.map((a) => (
-                        <a
-                          key={a.id}
-                          href={a.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline"
-                        >
-                          <IconPaperclip size={12} />
-                          {a.name}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <CommentThread
+              ticketId={ticket.id}
+              me={session?.id ?? ""}
+              users={users.map((u) => ({
+                id: u.id,
+                username: u.username,
+                name: u.name,
+              }))}
+              comments={ticket.comments.map((c) => ({
+                id: c.id,
+                body: c.body,
+                createdAt: c.createdAt,
+                author: { id: c.author.id, name: c.author.name },
+                attachments: c.attachments.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  url: a.url,
+                })),
+                replies: c.replies.map((r) => ({
+                  id: r.id,
+                  body: r.body,
+                  createdAt: r.createdAt,
+                  author: { id: r.author.id, name: r.author.name },
+                  attachments: r.attachments.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    url: a.url,
+                  })),
+                })),
+              }))}
+            />
           </div>
         </div>
       </div>

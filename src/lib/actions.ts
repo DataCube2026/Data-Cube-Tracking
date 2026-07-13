@@ -160,7 +160,7 @@ export async function createTicket(formData: FormData) {
     );
   }
   revalidatePath("/");
-  redirect(`/tickets/${ticket.id}`);
+  redirect(`/tickets/${ticket.id}?toast=created`);
 }
 
 // เพิ่มงานด่วนจากตาราง (สไตล์ monday "+ Add task")
@@ -231,7 +231,7 @@ export async function updateTicket(id: string, formData: FormData) {
     );
   }
   revalidatePath("/");
-  redirect(`/tickets/${id}`);
+  redirect(`/tickets/${id}?toast=updated`);
 }
 
 // สำหรับ inline editing ในตาราง (คลิกเปลี่ยนได้เลยแบบ monday)
@@ -324,7 +324,7 @@ export async function deleteTicket(formData: FormData) {
     );
   }
   revalidatePath("/");
-  redirect("/tickets");
+  redirect("/tickets?toast=deleted");
 }
 
 // แก้ไขข้อมูลงานจากการ์ด Info โดยตรง
@@ -351,6 +351,7 @@ export async function updateInfo(formData: FormData) {
   revalidatePath(`/tickets/${id}`);
   revalidatePath("/tickets");
   revalidatePath("/");
+  redirect(`/tickets/${id}?toast=updated`);
 }
 
 export async function updateDescription(formData: FormData) {
@@ -359,6 +360,7 @@ export async function updateDescription(formData: FormData) {
   const description = String(formData.get("description") ?? "").trim() || null;
   await prisma.ticket.update({ where: { id }, data: { description } });
   revalidatePath(`/tickets/${id}`);
+  redirect(`/tickets/${id}?toast=updated`);
 }
 
 // ---------- Subtasks (งานย่อย) ----------
@@ -441,6 +443,7 @@ export async function addAttachment(formData: FormData) {
     });
   }
   revalidatePath(`/tickets/${ticketId}`);
+  redirect(`/tickets/${ticketId}?toast=added`);
 }
 
 export async function deleteAttachment(formData: FormData) {
@@ -453,6 +456,7 @@ export async function deleteAttachment(formData: FormData) {
   }
   await prisma.attachment.delete({ where: { id } });
   revalidatePath(`/tickets/${att.ticketId}`);
+  redirect(`/tickets/${att.ticketId}?toast=deleted`);
 }
 
 // ---------- Comments ----------
@@ -460,6 +464,7 @@ export async function deleteAttachment(formData: FormData) {
 export async function addComment(formData: FormData) {
   const session = await requireUser();
   const ticketId = String(formData.get("ticketId"));
+  const parentId = String(formData.get("parentId") ?? "") || null;
   const body = String(formData.get("body") ?? "").trim();
   const files = (formData.getAll("files") as File[]).filter(
     (f) => f && typeof f === "object" && f.size > 0
@@ -467,8 +472,21 @@ export async function addComment(formData: FormData) {
   if (!body && files.length === 0) return;
 
   const comment = await prisma.comment.create({
-    data: { ticketId, body: body || "(แนบไฟล์)", authorId: session.id },
+    data: { ticketId, parentId, body: body || "(แนบไฟล์)", authorId: session.id },
   });
+
+  // แจ้งเตือนเจ้าของอัปเดตเมื่อมีคนตอบกลับ
+  if (parentId) {
+    const parent = await prisma.comment.findUnique({ where: { id: parentId } });
+    const t = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (parent && t && parent.authorId !== session.id) {
+      await notify(
+        parent.authorId,
+        `${session.name} ตอบกลับอัปเดตของคุณใน ${ticketCode(t.number)}`,
+        `/tickets/${ticketId}`
+      );
+    }
+  }
 
   for (const file of files) {
     if (file.size > MAX_FILE_SIZE) continue;
@@ -514,6 +532,36 @@ export async function addComment(formData: FormData) {
   revalidatePath(`/tickets/${ticketId}`);
 }
 
+// แก้ไขอัปเดต — เฉพาะเจ้าของเท่านั้น
+export async function editComment(formData: FormData) {
+  const session = await requireUser();
+  const id = String(formData.get("commentId"));
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) return;
+  const c = await prisma.comment.findUnique({ where: { id } });
+  if (!c || c.authorId !== session.id) return; // ไม่ใช่เจ้าของ แก้ไม่ได้
+  await prisma.comment.update({ where: { id }, data: { body } });
+  const t = await prisma.ticket.findUnique({ where: { id: c.ticketId } });
+  if (t) {
+    await logActivity(session.id, "ADD_UPDATE", `แก้ไขอัปเดตใน ${ticketCode(t.number)}`);
+  }
+  revalidatePath(`/tickets/${c.ticketId}`);
+}
+
+// ลบอัปเดต — เฉพาะเจ้าของเท่านั้น (ตอบกลับใต้โพสต์ถูกลบตามด้วย)
+export async function deleteComment(formData: FormData) {
+  const session = await requireUser();
+  const id = String(formData.get("commentId"));
+  const c = await prisma.comment.findUnique({ where: { id } });
+  if (!c || c.authorId !== session.id) return;
+  await prisma.comment.delete({ where: { id } });
+  const t = await prisma.ticket.findUnique({ where: { id: c.ticketId } });
+  if (t) {
+    await logActivity(session.id, "ADD_UPDATE", `ลบอัปเดตใน ${ticketCode(t.number)}`);
+  }
+  revalidatePath(`/tickets/${c.ticketId}`);
+}
+
 // ---------- Users ----------
 
 export async function createUser(formData: FormData) {
@@ -537,7 +585,7 @@ export async function createUser(formData: FormData) {
     `เพิ่มสมาชิกใหม่: ${name} (@${username}) ตำแหน่ง${role === "ADMIN" ? "แอดมิน" : "สมาชิก"}`
   );
   revalidatePath("/team");
-  redirect("/team");
+  redirect("/team?toast=done");
 }
 
 export async function setUserRole(formData: FormData) {
@@ -552,7 +600,7 @@ export async function setUserRole(formData: FormData) {
     `เปลี่ยนตำแหน่ง ${u.name} เป็น${role === "ADMIN" ? "แอดมิน" : "สมาชิก"}`
   );
   revalidatePath("/team");
-  redirect("/team");
+  redirect("/team?toast=done");
 }
 
 export async function deleteUser(formData: FormData) {
@@ -576,7 +624,7 @@ export async function deleteUser(formData: FormData) {
   await prisma.user.delete({ where: { id } });
   await logActivity(admin.id, "DELETE_USER", `ลบสมาชิก: ${u?.name ?? id}`);
   revalidatePath("/team");
-  redirect("/team");
+  redirect("/team?toast=done");
 }
 
 // ---------- Business Units (จัดการกลุ่ม BU) ----------
@@ -590,7 +638,7 @@ export async function addBusinessUnit(formData: FormData) {
   await prisma.businessUnit.create({ data: { name } });
   await logActivity(session.id, "UPDATE_BU", `เพิ่มกลุ่ม BU: ${name}`);
   revalidatePath("/", "layout");
-  redirect("/team");
+  redirect("/team?toast=done");
 }
 
 export async function toggleBusinessUnit(formData: FormData) {
@@ -605,7 +653,7 @@ export async function toggleBusinessUnit(formData: FormData) {
     `${bu.active ? "ปิด" : "เปิด"}การใช้งานกลุ่ม BU: ${bu.name}`
   );
   revalidatePath("/", "layout");
-  redirect("/team");
+  redirect("/team?toast=done");
 }
 
 export async function deleteBusinessUnit(formData: FormData) {
@@ -616,5 +664,5 @@ export async function deleteBusinessUnit(formData: FormData) {
   await prisma.businessUnit.delete({ where: { id } });
   await logActivity(session.id, "UPDATE_BU", `ลบกลุ่ม BU: ${bu.name}`);
   revalidatePath("/", "layout");
-  redirect("/team");
+  redirect("/team?toast=done");
 }

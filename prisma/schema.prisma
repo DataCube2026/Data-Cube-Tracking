@@ -121,4 +121,8 @@ model Comment {
   author      User         @relation(fields: [authorId], references: [id])
   authorId    String
   attachments Attachment[]
+  // ตอบกลับอัปเดต (reply)
+  parent      Comment?     @relation("Reply", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId    String?
+  replies     Comment[]    @relation("Reply")
 }
