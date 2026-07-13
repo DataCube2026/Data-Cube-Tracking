@@ -307,7 +307,12 @@ function TicketGroup({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {items.map((t) => (
-              <TicketRow key={t.id} ticket={toRow(t)} users={users} />
+              <TicketRow
+                key={t.id}
+                ticket={toRow(t)}
+                users={users}
+                busNames={busNames}
+              />
             ))}
 
             {/* + เพิ่มงานด่วน */}

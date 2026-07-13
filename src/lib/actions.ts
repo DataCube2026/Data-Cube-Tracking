@@ -363,6 +363,60 @@ export async function updateDescription(formData: FormData) {
   redirect(`/tickets/${id}?toast=updated`);
 }
 
+// แก้ไขฟิลด์เดี่ยวจากตารางหลัก (inline edit)
+export async function setTicketInline(
+  ticketId: string,
+  patch: {
+    title?: string;
+    customer?: string;
+    bu?: string;
+    jobType?: string;
+    dueDate?: string | null;
+  }
+) {
+  const session = await requireUser();
+  const data: {
+    title?: string;
+    customer?: string;
+    bu?: string;
+    jobType?: string;
+    dueDate?: Date | null;
+  } = {};
+  if (patch.title !== undefined && patch.title.trim()) data.title = patch.title.trim();
+  if (patch.customer !== undefined) data.customer = patch.customer.trim() || "-";
+  if (patch.bu !== undefined) data.bu = patch.bu;
+  if (patch.jobType !== undefined) data.jobType = patch.jobType;
+  if (patch.dueDate !== undefined)
+    data.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
+
+  const ticket = await prisma.ticket.update({ where: { id: ticketId }, data });
+  await logActivity(
+    session.id,
+    "UPDATE_TICKET",
+    `แก้ไขงาน ${ticketCode(ticket.number)}: ${ticket.title}`
+  );
+  revalidatePath("/tickets");
+  revalidatePath("/");
+  revalidatePath("/board");
+  revalidatePath(`/tickets/${ticketId}`);
+}
+
+export async function setSubtaskInline(
+  subtaskId: string,
+  patch: { title?: string; assigneeId?: string | null; dueDate?: string | null }
+) {
+  await requireUser();
+  const data: { title?: string; assigneeId?: string | null; dueDate?: Date | null } = {};
+  if (patch.title !== undefined && patch.title.trim()) data.title = patch.title.trim();
+  if (patch.assigneeId !== undefined) data.assigneeId = patch.assigneeId;
+  if (patch.dueDate !== undefined)
+    data.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
+
+  const st = await prisma.subtask.update({ where: { id: subtaskId }, data });
+  revalidatePath("/tickets");
+  revalidatePath(`/tickets/${st.ticketId}`);
+}
+
 // ---------- Subtasks (งานย่อย) ----------
 
 export async function addSubtask(formData: FormData) {
