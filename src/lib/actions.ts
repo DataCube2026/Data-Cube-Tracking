@@ -642,8 +642,10 @@ export async function createUser(formData: FormData) {
   redirect("/team?toast=done");
 }
 
-// แก้ไขข้อมูลสมาชิกจากป็อปอัพ (เฉพาะแอดมิน)
-export async function updateUser(formData: FormData) {
+// แก้ไขข้อมูลสมาชิกจากป็อปอัพ (เฉพาะแอดมิน) — คืนผลลัพธ์ให้ป็อปอัพจัดการเอง
+export async function updateUser(
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
   const admin = await requireAdmin();
   const id = String(formData.get("userId"));
   const name = String(formData.get("name") ?? "").trim();
@@ -651,9 +653,9 @@ export async function updateUser(formData: FormData) {
   const role = String(formData.get("role")) === "ADMIN" ? "ADMIN" : "MEMBER";
   const newPassword = String(formData.get("newPassword") ?? "");
 
-  if (!name || !username) redirect("/team?error=invalid");
+  if (!name || !username) return { ok: false, error: "invalid" };
   const exists = await prisma.user.findUnique({ where: { username } });
-  if (exists && exists.id !== id) redirect("/team?error=duplicate");
+  if (exists && exists.id !== id) return { ok: false, error: "duplicate" };
 
   const data: {
     name: string;
@@ -664,7 +666,7 @@ export async function updateUser(formData: FormData) {
   } = { name, username };
   if (id !== admin.id) data.role = role; // เปลี่ยนตำแหน่งตัวเองไม่ได้
   if (newPassword) {
-    if (newPassword.length < 4) redirect("/team?error=invalid");
+    if (newPassword.length < 4) return { ok: false, error: "invalid" };
     data.passwordHash = await bcrypt.hash(newPassword, 10);
     data.mustChangePassword = true; // ให้ตั้งรหัสใหม่เองตอน login ครั้งถัดไป
   }
@@ -676,7 +678,7 @@ export async function updateUser(formData: FormData) {
     `แก้ไขข้อมูลสมาชิก: ${u.name} (@${u.username})${newPassword ? " + รีเซ็ตรหัสผ่าน" : ""}`
   );
   revalidatePath("/team");
-  redirect("/team?toast=updated");
+  return { ok: true };
 }
 
 export async function setUserRole(formData: FormData) {
