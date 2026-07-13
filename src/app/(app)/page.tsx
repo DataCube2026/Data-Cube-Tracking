@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { STATUSES, PRIORITIES, fmtDate, isOverdue } from "@/lib/constants";
 import { StatusBadge, PriorityBadge } from "@/components/Badge";
 import { IconWarning, IconDownload } from "@/components/Icons";
-import { BUSINESS_UNITS, buShort } from "@/lib/constants";
+import { buShort } from "@/lib/constants";
 import { LineChart, DonutChart } from "@/components/Charts";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export default async function DashboardPage({
 }) {
   const { bu, assignee, from, to } = searchParams;
 
-  const [tickets, users] = await Promise.all([
+  const [tickets, users, busRows] = await Promise.all([
     prisma.ticket.findMany({
       where: {
         ...(bu ? { bu } : {}),
@@ -38,7 +38,12 @@ export default async function DashboardPage({
       orderBy: { updatedAt: "desc" },
     }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.businessUnit.findMany({
+      where: { active: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+  const busNames = busRows.map((b) => b.name);
 
   const exportQS = new URLSearchParams({
     ...(bu ? { bu } : {}),
@@ -118,7 +123,7 @@ export default async function DashboardPage({
         <span className="text-sm font-medium text-slate-600">ฟิลเตอร์:</span>
         <select name="bu" defaultValue={bu ?? ""} className="input max-w-48">
           <option value="">กลุ่ม BU: ทั้งหมด</option>
-          {BUSINESS_UNITS.map((b) => (
+          {busNames.map((b) => (
             <option key={b} value={b}>{buShort(b)}</option>
           ))}
         </select>

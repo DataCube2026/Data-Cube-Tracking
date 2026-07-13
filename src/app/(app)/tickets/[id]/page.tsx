@@ -19,7 +19,6 @@ import {
   isOverdue,
   ticketCode,
   buShort,
-  BUSINESS_UNITS,
   JOB_TYPES,
   CHANNELS,
 } from "@/lib/constants";
@@ -63,7 +62,7 @@ export default async function TicketDetailPage({
 }: {
   params: { id: string };
 }) {
-  const [ticket, users] = await Promise.all([
+  const [ticket, users, busRows] = await Promise.all([
     prisma.ticket.findUnique({
       where: { id: params.id },
       include: {
@@ -78,9 +77,19 @@ export default async function TicketDetailPage({
       },
     }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.businessUnit.findMany({
+      where: { active: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   if (!ticket) notFound();
+
+  const busNames = busRows.map((b) => b.name);
+  const buOptions =
+    ticket.bu && !busNames.includes(ticket.bu)
+      ? [ticket.bu, ...busNames]
+      : busNames;
 
   const updateTicketWithId = updateTicket.bind(null, ticket.id);
   const doneSubtasks = ticket.subtasks.filter((s) => s.done).length;
@@ -168,7 +177,7 @@ export default async function TicketDetailPage({
                     className="input px-3 py-1.5 text-sm"
                   >
                     <option value="">— ไม่ระบุ —</option>
-                    {BUSINESS_UNITS.map((b) => (
+                    {buOptions.map((b) => (
                       <option key={b} value={b}>{buShort(b)}</option>
                     ))}
                   </select>
@@ -445,6 +454,7 @@ export default async function TicketDetailPage({
                 ticket={ticket}
                 action={updateTicketWithId}
                 submitLabel="บันทึกการแก้ไข"
+                businessUnits={busNames}
               />
             </div>
           </details>

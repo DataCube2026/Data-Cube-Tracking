@@ -9,7 +9,13 @@ export default async function NewTicketPage({
 }: {
   searchParams: { error?: string };
 }) {
-  const users = await prisma.user.findMany({ orderBy: { name: "asc" } });
+  const [users, bus] = await Promise.all([
+    prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.businessUnit.findMany({
+      where: { active: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -28,7 +34,12 @@ export default async function NewTicketPage({
       )}
 
       <div className="card p-6">
-        <TicketForm users={users} action={createTicket} submitLabel="บันทึกงาน" />
+        <TicketForm
+          users={users}
+          action={createTicket}
+          submitLabel="บันทึกงาน"
+          businessUnits={bus.map((b) => b.name)}
+        />
       </div>
     </div>
   );

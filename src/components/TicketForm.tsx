@@ -1,10 +1,4 @@
-import {
-  STATUSES,
-  PRIORITIES,
-  JOB_TYPES,
-  CHANNELS,
-  BUSINESS_UNITS,
-} from "@/lib/constants";
+import { STATUSES, PRIORITIES, JOB_TYPES, CHANNELS } from "@/lib/constants";
 import type { Ticket, User } from "@prisma/client";
 
 export function TicketForm({
@@ -12,12 +6,19 @@ export function TicketForm({
   ticket,
   action,
   submitLabel,
+  businessUnits,
 }: {
   users: User[];
   ticket?: Ticket;
   action: (formData: FormData) => Promise<void>;
   submitLabel: string;
+  businessUnits: string[];
 }) {
+  // ถ้า BU เดิมของงานถูกปิดใช้งานไปแล้ว ให้ยังแสดงในตัวเลือกได้
+  const buOptions =
+    ticket?.bu && !businessUnits.includes(ticket.bu)
+      ? [ticket.bu, ...businessUnits]
+      : businessUnits;
   const due = ticket?.dueDate
     ? new Date(ticket.dueDate).toISOString().slice(0, 10)
     : "";
@@ -34,7 +35,7 @@ export function TicketForm({
           <label className="label">กลุ่ม BU ลูกค้า *</label>
           <select name="bu" defaultValue={ticket?.bu ?? ""} className="input" required>
             <option value="" disabled>— เลือกกลุ่ม BU —</option>
-            {BUSINESS_UNITS.map((b) => (
+            {buOptions.map((b) => (
               <option key={b} value={b}>{b}</option>
             ))}
           </select>

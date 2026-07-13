@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { quickAddTicket } from "@/lib/actions";
-import {
-  STATUSES,
-  PRIORITIES,
-  BUSINESS_UNITS,
-  buShort,
-} from "@/lib/constants";
+import { STATUSES, PRIORITIES, buShort } from "@/lib/constants";
 import { IconSearch, IconDownload } from "@/components/Icons";
 import { TicketRow, type RowTicket } from "@/components/TicketRow";
 import type { Ticket, User, Subtask } from "@prisma/client";
@@ -61,7 +56,7 @@ export default async function TicketsPage({
   const { status, priority, assignee, bu, q, from, to } = searchParams;
   const groupBy = searchParams.group ?? "status";
 
-  const [tickets, users] = (await Promise.all([
+  const [tickets, users, busRows] = (await Promise.all([
     prisma.ticket.findMany({
       where: {
         ...(status ? { status } : {}),
@@ -94,7 +89,13 @@ export default async function TicketsPage({
       orderBy: { number: "asc" },
     }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
-  ])) as [TicketWithRelations[], User[]];
+    prisma.businessUnit.findMany({
+      where: { active: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ])) as [TicketWithRelations[], User[], { name: string }[]];
+
+  const busNames = busRows.map((b) => b.name);
 
   // จัดกลุ่มสไตล์ monday
   let groups: {
@@ -180,7 +181,7 @@ export default async function TicketsPage({
         </div>
         <select name="bu" defaultValue={bu ?? ""} className="input max-w-44">
           <option value="">BU: ทั้งหมด</option>
-          {BUSINESS_UNITS.map((b) => (
+          {busNames.map((b) => (
             <option key={b} value={b}>{buShort(b)}</option>
           ))}
         </select>
@@ -239,7 +240,13 @@ export default async function TicketsPage({
 
       {/* กลุ่มตาราง */}
       {groups.map((g) => (
-        <TicketGroup key={g.key} group={g} groupBy={groupBy} users={userOpts} />
+        <TicketGroup
+          key={g.key}
+          group={g}
+          groupBy={groupBy}
+          users={userOpts}
+          busNames={busNames}
+        />
       ))}
     </div>
   );
@@ -249,6 +256,7 @@ function TicketGroup({
   group,
   groupBy,
   users,
+  busNames,
 }: {
   group: {
     key: string;
@@ -258,6 +266,7 @@ function TicketGroup({
   };
   groupBy: string;
   users: { id: string; name: string }[];
+  busNames: string[];
 }) {
   const items = group.items;
 
@@ -324,7 +333,7 @@ function TicketGroup({
                     className="rounded border border-transparent bg-transparent px-2 py-1 text-sm text-slate-500 outline-none focus:border-slate-300 focus:bg-white"
                   >
                     <option value="" disabled>กลุ่ม BU...</option>
-                    {BUSINESS_UNITS.map((b) => (
+                    {busNames.map((b) => (
                       <option key={b} value={b}>{buShort(b)}</option>
                     ))}
                   </select>

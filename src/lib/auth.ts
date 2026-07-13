@@ -13,6 +13,7 @@ export type SessionUser = {
   id: string;
   username: string;
   name: string;
+  role?: string; // ADMIN | MEMBER
   mc?: boolean; // ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน
 };
 
@@ -40,6 +41,7 @@ export async function getSession(): Promise<SessionUser | null> {
       id: payload.id as string,
       username: payload.username as string,
       name: payload.name as string,
+      role: payload.role as string | undefined,
       mc: payload.mc as boolean | undefined,
     };
   } catch {

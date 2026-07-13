@@ -34,6 +34,7 @@ export async function login(formData: FormData) {
     id: user.id,
     username: user.username,
     name: user.name,
+    role: user.role,
     mc: user.mustChangePassword,
   });
   await logActivity(user.id, "LOGIN", "เข้าสู่ระบบ");
@@ -91,6 +92,7 @@ export async function changePassword(formData: FormData) {
     id: session.id,
     username: session.username,
     name: session.name,
+    role: user.role,
     mc: false,
   });
   redirect("/profile?changed=1");
@@ -99,6 +101,15 @@ export async function changePassword(formData: FormData) {
 async function requireUser() {
   const session = await getSession();
   if (!session) redirect("/login");
+  return session;
+}
+
+// เฉพาะแอดมิน (เช็ค role จากฐานข้อมูลจริง ไม่ใช่แค่ token)
+async function requireAdmin() {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const me = await prisma.user.findUnique({ where: { id: session.id } });
+  if (!me || me.role !== "ADMIN") redirect("/team?error=forbidden");
   return session;
 }
 
@@ -506,23 +517,104 @@ export async function addComment(formData: FormData) {
 // ---------- Users ----------
 
 export async function createUser(formData: FormData) {
-  await requireUser();
+  const session = await requireAdmin();
   const username = String(formData.get("username") ?? "").trim().toLowerCase();
   const name = String(formData.get("name") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const role = String(formData.get("role")) === "ADMIN" ? "ADMIN" : "MEMBER";
 
   if (!username || !name || password.length < 4) redirect("/team?error=invalid");
 
   const exists = await prisma.user.findUnique({ where: { username } });
   if (exists) redirect("/team?error=duplicate");
 
-  const session = await getSession();
   await prisma.user.create({
-    data: { username, name, passwordHash: await bcrypt.hash(password, 10) },
+    data: { username, name, role, passwordHash: await bcrypt.hash(password, 10) },
   });
-  if (session) {
-    await logActivity(session.id, "CREATE_USER", `เพิ่มสมาชิกใหม่: ${name} (@${username})`);
-  }
+  await logActivity(
+    session.id,
+    "CREATE_USER",
+    `เพิ่มสมาชิกใหม่: ${name} (@${username}) ตำแหน่ง${role === "ADMIN" ? "แอดมิน" : "สมาชิก"}`
+  );
   revalidatePath("/team");
+  redirect("/team");
+}
+
+export async function setUserRole(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("userId"));
+  const role = String(formData.get("role")) === "ADMIN" ? "ADMIN" : "MEMBER";
+  if (id === admin.id) redirect("/team?error=self");
+  const u = await prisma.user.update({ where: { id }, data: { role } });
+  await logActivity(
+    admin.id,
+    "UPDATE_USER",
+    `เปลี่ยนตำแหน่ง ${u.name} เป็น${role === "ADMIN" ? "แอดมิน" : "สมาชิก"}`
+  );
+  revalidatePath("/team");
+  redirect("/team");
+}
+
+export async function deleteUser(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("userId"));
+  if (id === admin.id) redirect("/team?error=self");
+
+  // ห้ามลบถ้ามีข้อมูลผูกอยู่ (งานที่สร้าง / อัปเดต / ไฟล์แนบ)
+  const [created, comments, attachments] = await Promise.all([
+    prisma.ticket.count({ where: { createdById: id } }),
+    prisma.comment.count({ where: { authorId: id } }),
+    prisma.attachment.count({ where: { uploaderId: id } }),
+  ]);
+  if (created + comments + attachments > 0) redirect("/team?error=hasdata");
+
+  // ปลดงานที่ถูกมอบหมายให้กลายเป็น "ไม่มอบหมาย" ก่อนลบ
+  await prisma.ticket.updateMany({ where: { assigneeId: id }, data: { assigneeId: null } });
+  await prisma.subtask.updateMany({ where: { assigneeId: id }, data: { assigneeId: null } });
+
+  const u = await prisma.user.findUnique({ where: { id } });
+  await prisma.user.delete({ where: { id } });
+  await logActivity(admin.id, "DELETE_USER", `ลบสมาชิก: ${u?.name ?? id}`);
+  revalidatePath("/team");
+  redirect("/team");
+}
+
+// ---------- Business Units (จัดการกลุ่ม BU) ----------
+
+export async function addBusinessUnit(formData: FormData) {
+  const session = await requireAdmin();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const exists = await prisma.businessUnit.findUnique({ where: { name } });
+  if (exists) redirect("/team?error=budup");
+  await prisma.businessUnit.create({ data: { name } });
+  await logActivity(session.id, "UPDATE_BU", `เพิ่มกลุ่ม BU: ${name}`);
+  revalidatePath("/", "layout");
+  redirect("/team");
+}
+
+export async function toggleBusinessUnit(formData: FormData) {
+  const session = await requireAdmin();
+  const id = String(formData.get("buId"));
+  const bu = await prisma.businessUnit.findUnique({ where: { id } });
+  if (!bu) return;
+  await prisma.businessUnit.update({ where: { id }, data: { active: !bu.active } });
+  await logActivity(
+    session.id,
+    "UPDATE_BU",
+    `${bu.active ? "ปิด" : "เปิด"}การใช้งานกลุ่ม BU: ${bu.name}`
+  );
+  revalidatePath("/", "layout");
+  redirect("/team");
+}
+
+export async function deleteBusinessUnit(formData: FormData) {
+  const session = await requireAdmin();
+  const id = String(formData.get("buId"));
+  const bu = await prisma.businessUnit.findUnique({ where: { id } });
+  if (!bu) return;
+  await prisma.businessUnit.delete({ where: { id } });
+  await logActivity(session.id, "UPDATE_BU", `ลบกลุ่ม BU: ${bu.name}`);
+  revalidatePath("/", "layout");
   redirect("/team");
 }

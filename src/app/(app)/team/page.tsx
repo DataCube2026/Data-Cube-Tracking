@@ -1,90 +1,235 @@
 import { prisma } from "@/lib/prisma";
-import { createUser } from "@/lib/actions";
+import { getSession } from "@/lib/auth";
+import {
+  createUser,
+  setUserRole,
+  deleteUser,
+  addBusinessUnit,
+  toggleBusinessUnit,
+  deleteBusinessUnit,
+} from "@/lib/actions";
 import { Avatar } from "@/components/Badge";
+import { buShort } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
+
+const ERRORS: Record<string, string> = {
+  duplicate: "ชื่อผู้ใช้นี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น",
+  invalid: "กรุณากรอกข้อมูลให้ครบ (รหัสผ่านอย่างน้อย 4 ตัวอักษร)",
+  forbidden: "เฉพาะแอดมินเท่านั้นที่จัดการส่วนนี้ได้",
+  self: "ไม่สามารถลบหรือเปลี่ยนตำแหน่งตัวเองได้",
+  hasdata: "ลบไม่ได้ — สมาชิกคนนี้มีงาน/อัปเดต/ไฟล์ผูกอยู่ในระบบ (เปลี่ยนเป็นสมาชิกธรรมดาแทนได้)",
+  budup: "มีกลุ่ม BU ชื่อนี้อยู่แล้ว",
+};
 
 export default async function TeamPage({
   searchParams,
 }: {
   searchParams: { error?: string };
 }) {
-  const users = await prisma.user.findMany({
-    include: {
-      _count: { select: { assignedTickets: true } },
-      assignedTickets: { where: { status: { not: "DONE" } }, select: { id: true } },
-    },
-    orderBy: { name: "asc" },
-  });
+  const session = await getSession();
+  const [users, me, bus] = await Promise.all([
+    prisma.user.findMany({
+      include: {
+        _count: { select: { assignedTickets: true } },
+        assignedTickets: { where: { status: { not: "DONE" } }, select: { id: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findUnique({ where: { id: session?.id ?? "" } }),
+    prisma.businessUnit.findMany({ orderBy: { createdAt: "asc" } }),
+  ]);
+  const isAdmin = me?.role === "ADMIN";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">ทีมงาน</h1>
-        <p className="text-sm text-slate-500">สมาชิกทั้งหมด {users.length} คน</p>
+        <h1 className="text-2xl font-semibold text-slate-900">ทีมงานและการตั้งค่า</h1>
+        <p className="text-sm text-slate-500">
+          สมาชิกทั้งหมด {users.length} คน
+          {isAdmin ? " — คุณเป็นแอดมิน จัดการสมาชิกและกลุ่ม BU ได้" : ""}
+        </p>
       </div>
 
-      {searchParams.error === "duplicate" && (
+      {searchParams.error && (
         <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700">
-          ชื่อผู้ใช้นี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น
-        </div>
-      )}
-      {searchParams.error === "invalid" && (
-        <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700">
-          กรุณากรอกข้อมูลให้ครบ (รหัสผ่านอย่างน้อย 4 ตัวอักษร)
+          {ERRORS[searchParams.error] ?? "เกิดข้อผิดพลาด"}
         </div>
       )}
 
       <div className="grid gap-5 md:grid-cols-2">
+        {/* สมาชิก */}
         <div className="card p-5">
           <h2 className="mb-4 font-semibold text-slate-900">สมาชิก</h2>
           <div className="divide-y divide-slate-100">
             {users.map((u) => (
-              <div key={u.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  {u.avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={u.avatarUrl}
-                      alt={u.name}
-                      className="h-9 w-9 rounded-full border border-slate-200 object-cover"
-                    />
-                  ) : (
-                    <Avatar name={u.name} />
-                  )}
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{u.name}</div>
-                    <div className="text-xs text-slate-400">@{u.username}</div>
+              <div key={u.id} className="flex items-center gap-3 py-3">
+                {u.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={u.avatarUrl}
+                    alt={u.name}
+                    className="h-9 w-9 rounded-full border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <Avatar name={u.name} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium text-slate-800">
+                      {u.name}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        u.role === "ADMIN"
+                          ? "bg-brand-50 text-brand-700"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {u.role === "ADMIN" ? "แอดมิน" : "สมาชิก"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    @{u.username} · ค้าง {u.assignedTickets.length} งาน / ทั้งหมด{" "}
+                    {u._count.assignedTickets}
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-500">
-                  <div>
-                    ค้าง <b className="text-brand-600">{u.assignedTickets.length}</b> งาน
+
+                {isAdmin && u.id !== me?.id && (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <form action={setUserRole}>
+                      <input type="hidden" name="userId" value={u.id} />
+                      <input
+                        type="hidden"
+                        name="role"
+                        value={u.role === "ADMIN" ? "MEMBER" : "ADMIN"}
+                      />
+                      <button
+                        className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100"
+                        title={u.role === "ADMIN" ? "ลดเป็นสมาชิก" : "เลื่อนเป็นแอดมิน"}
+                      >
+                        {u.role === "ADMIN" ? "ลดเป็นสมาชิก" : "ตั้งเป็นแอดมิน"}
+                      </button>
+                    </form>
+                    <form action={deleteUser}>
+                      <input type="hidden" name="userId" value={u.id} />
+                      <button
+                        className="rounded border border-slate-200 px-2 py-1 text-xs text-brand-600 transition hover:bg-brand-50"
+                        title="ลบสมาชิก"
+                      >
+                        ลบ
+                      </button>
+                    </form>
                   </div>
-                  <div>ทั้งหมด {u._count.assignedTickets} งาน</div>
-                </div>
+                )}
               </div>
             ))}
           </div>
         </div>
 
-        <div className="card h-fit p-5">
-          <h2 className="mb-4 font-semibold text-slate-900">เพิ่มสมาชิกใหม่</h2>
-          <form action={createUser} className="space-y-3">
-            <div>
-              <label className="label">ชื่อที่แสดง</label>
-              <input name="name" className="input" required />
+        <div className="space-y-5">
+          {/* เพิ่มสมาชิก (เฉพาะแอดมิน) */}
+          {isAdmin && (
+            <div className="card p-5">
+              <h2 className="mb-4 font-semibold text-slate-900">เพิ่มสมาชิกใหม่</h2>
+              <form action={createUser} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">ชื่อที่แสดง</label>
+                    <input name="name" className="input" required />
+                  </div>
+                  <div>
+                    <label className="label">ชื่อผู้ใช้ (login)</label>
+                    <input name="username" className="input" required />
+                  </div>
+                  <div>
+                    <label className="label">รหัสผ่านเริ่มต้น</label>
+                    <input name="password" type="password" className="input" required minLength={4} />
+                  </div>
+                  <div>
+                    <label className="label">ตำแหน่ง</label>
+                    <select name="role" defaultValue="MEMBER" className="input">
+                      <option value="MEMBER">สมาชิก</option>
+                      <option value="ADMIN">แอดมิน</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  สมาชิกใหม่จะถูกให้ตั้งรหัสผ่านเองตอน login ครั้งแรก
+                </p>
+                <button className="btn-primary w-full">เพิ่มสมาชิก</button>
+              </form>
             </div>
-            <div>
-              <label className="label">ชื่อผู้ใช้ (สำหรับ login)</label>
-              <input name="username" className="input" required />
+          )}
+
+          {/* จัดการกลุ่ม BU (เฉพาะแอดมิน) */}
+          {isAdmin && (
+            <div className="card p-5">
+              <h2 className="mb-1 font-semibold text-slate-900">จัดการกลุ่ม BU ลูกค้า</h2>
+              <p className="mb-3 text-xs text-slate-400">
+                ปิดการใช้งาน = ไม่ขึ้นให้เลือกตอนสร้างงานใหม่ (งานเก่าไม่กระทบ)
+              </p>
+              <div className="divide-y divide-slate-100">
+                {bus.map((b) => (
+                  <div key={b.id} className="flex items-center gap-2 py-2">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        b.active
+                          ? "bg-emerald-50 text-emerald-600"
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {buShort(b.name)}
+                    </span>
+                    <span
+                      className={`flex-1 truncate text-sm ${
+                        b.active ? "text-slate-700" : "text-slate-400 line-through"
+                      }`}
+                    >
+                      {b.name}
+                    </span>
+                    <form action={toggleBusinessUnit}>
+                      <input type="hidden" name="buId" value={b.id} />
+                      <button
+                        className={`rounded border px-2 py-0.5 text-xs transition ${
+                          b.active
+                            ? "border-slate-200 text-slate-500 hover:bg-slate-100"
+                            : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                        }`}
+                      >
+                        {b.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+                      </button>
+                    </form>
+                    <form action={deleteBusinessUnit}>
+                      <input type="hidden" name="buId" value={b.id} />
+                      <button
+                        className="rounded px-1.5 text-slate-300 transition hover:bg-slate-100 hover:text-brand-600"
+                        title="ลบ"
+                      >
+                        ×
+                      </button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+              <form action={addBusinessUnit} className="mt-3 flex gap-2">
+                <input
+                  name="name"
+                  placeholder="เพิ่มกลุ่ม BU เช่น Jaymart (JMT)"
+                  required
+                  className="input flex-1"
+                />
+                <button className="btn-secondary shrink-0">เพิ่ม</button>
+              </form>
             </div>
-            <div>
-              <label className="label">รหัสผ่าน</label>
-              <input name="password" type="password" className="input" required minLength={4} />
+          )}
+
+          {!isAdmin && (
+            <div className="card p-5 text-sm text-slate-500">
+              การเพิ่ม/ลบสมาชิก เปลี่ยนตำแหน่ง และจัดการกลุ่ม BU
+              ทำได้เฉพาะผู้ที่มีตำแหน่ง <b>แอดมิน</b>
             </div>
-            <button className="btn-primary w-full">เพิ่มสมาชิก</button>
-          </form>
+          )}
         </div>
       </div>
     </div>

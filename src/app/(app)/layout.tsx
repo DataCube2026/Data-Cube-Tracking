@@ -127,6 +127,25 @@ export default async function AppLayout({
 
         <main className="ml-60 flex-1 p-7">{children}</main>
       </div>
+
+      {/* เวอร์ชันระบบ (เวลาที่ build) — มุมขวาล่าง */}
+      <div
+        className="fixed bottom-2 right-3 z-10 rounded bg-white/80 px-2 py-0.5 text-[10px] text-slate-400"
+        title="เวลาที่ deploy เวอร์ชันนี้"
+      >
+        อัปเดตระบบล่าสุด:{" "}
+        {process.env.NEXT_PUBLIC_BUILD_TIME
+          ? new Date(process.env.NEXT_PUBLIC_BUILD_TIME).toLocaleString("th-TH", {
+              timeZone: "Asia/Bangkok",
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "-"}{" "}
+        น.
+      </div>
     </div>
   );
 }
