@@ -2,12 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import {
   createUser,
-  setUserRole,
   deleteUser,
   addBusinessUnit,
   toggleBusinessUnit,
   deleteBusinessUnit,
 } from "@/lib/actions";
+import { UserEditModal } from "@/components/UserEditModal";
 import { Avatar } from "@/components/Badge";
 import { buShort } from "@/lib/constants";
 
@@ -95,31 +95,28 @@ export default async function TeamPage({
                   </div>
                 </div>
 
-                {isAdmin && u.id !== me?.id && (
+                {isAdmin && (
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <form action={setUserRole}>
-                      <input type="hidden" name="userId" value={u.id} />
-                      <input
-                        type="hidden"
-                        name="role"
-                        value={u.role === "ADMIN" ? "MEMBER" : "ADMIN"}
-                      />
-                      <button
-                        className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100"
-                        title={u.role === "ADMIN" ? "ลดเป็นสมาชิก" : "เลื่อนเป็นแอดมิน"}
-                      >
-                        {u.role === "ADMIN" ? "ลดเป็นสมาชิก" : "ตั้งเป็นแอดมิน"}
-                      </button>
-                    </form>
-                    <form action={deleteUser}>
-                      <input type="hidden" name="userId" value={u.id} />
-                      <button
-                        className="rounded border border-slate-200 px-2 py-1 text-xs text-brand-600 transition hover:bg-brand-50"
-                        title="ลบสมาชิก"
-                      >
-                        ลบ
-                      </button>
-                    </form>
+                    <UserEditModal
+                      user={{
+                        id: u.id,
+                        username: u.username,
+                        name: u.name,
+                        role: u.role,
+                      }}
+                      isSelf={u.id === me?.id}
+                    />
+                    {u.id !== me?.id && (
+                      <form action={deleteUser}>
+                        <input type="hidden" name="userId" value={u.id} />
+                        <button
+                          className="rounded border border-slate-200 px-2 py-1 text-xs text-brand-600 transition hover:bg-brand-50"
+                          title="ลบสมาชิก"
+                        >
+                          ลบ
+                        </button>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>
