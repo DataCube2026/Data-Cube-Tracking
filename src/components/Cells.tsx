@@ -7,7 +7,7 @@ import { STATUSES, PRIORITIES, statusOf, priorityOf } from "@/lib/constants";
 import {
   setTicketStatus,
   setTicketPriority,
-  setTicketAssignee,
+  toggleTicketAssignee,
 } from "@/lib/actions";
 import { toast } from "@/components/Toaster";
 
@@ -133,27 +133,32 @@ export function PriorityCell({
   );
 }
 
-export function OwnerCell({
+// ผู้รับผิดชอบหลายคน — ติ๊กเพิ่ม/ถอดได้จาก dropdown
+export function AssigneesCell({
   ticketId,
-  assignee,
+  assignees,
   users,
 }: {
   ticketId: string;
-  assignee: UserOption | null;
+  assignees: UserOption[];
   users: UserOption[];
 }) {
   const [open, setOpen] = useState(false);
-  const [val, setVal] = useState<UserOption | null>(assignee);
+  const [list, setList] = useState<UserOption[]>(assignees);
   const [, startTransition] = useTransition();
   const router = useRouter();
-  useEffect(() => setVal(assignee), [assignee]);
+  useEffect(() => setList(assignees), [assignees]);
 
-  const pick = (u: UserOption | null) => {
-    setOpen(false);
-    setVal(u); // แสดงผลทันที
-    toast(u ? `มอบหมายงานให้ ${u.name} เรียบร้อยแล้ว` : "ยกเลิกการมอบหมายแล้ว");
+  const toggle = (u: UserOption) => {
+    const has = list.some((a) => a.id === u.id);
+    setList(has ? list.filter((a) => a.id !== u.id) : [...list, u]); // แสดงผลทันที
+    toast(
+      has
+        ? `ถอด ${u.name} ออกจากงานแล้ว`
+        : `มอบหมายงานให้ ${u.name} เรียบร้อยแล้ว`
+    );
     startTransition(async () => {
-      await setTicketAssignee(ticketId, u?.id ?? null);
+      await toggleTicketAssignee(ticketId, u.id);
       router.refresh();
     });
   };
@@ -163,49 +168,66 @@ export function OwnerCell({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-lg px-2 py-1 transition hover:bg-slate-100"
-        title="คลิกเพื่อมอบหมายงาน"
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1 transition hover:bg-slate-100"
+        title="คลิกเพื่อมอบหมาย (เลือกได้หลายคน)"
       >
-        {val ? (
-          <>
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
-              {val.name.charAt(0)}
-            </span>
-            <span className="text-sm text-slate-600">{val.name}</span>
-          </>
-        ) : (
+        {list.length === 0 ? (
           <>
             <span className="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-slate-300 text-xs text-slate-400">
               +
             </span>
             <span className="text-sm text-slate-400">มอบหมาย</span>
           </>
+        ) : (
+          <>
+            <span className="flex -space-x-2">
+              {list.slice(0, 3).map((a) => (
+                <span
+                  key={a.id}
+                  title={a.name}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white ring-2 ring-white"
+                >
+                  {a.name.charAt(0)}
+                </span>
+              ))}
+            </span>
+            <span className="text-sm text-slate-600">
+              {list.length === 1
+                ? list[0].name
+                : `${list[0].name} +${list.length - 1}`}
+            </span>
+          </>
         )}
       </button>
       <Dropdown open={open} onClose={() => setOpen(false)}>
-        {users.map((u) => (
-          <button
-            type="button"
-            key={u.id}
-            onClick={() => pick(u)}
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 transition hover:bg-slate-100"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
-              {u.name.charAt(0)}
-            </span>
-            {u.name}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => pick(null)}
-          className="mt-1 flex w-full items-center gap-2 rounded border-t border-slate-100 px-2 py-1.5 text-left text-sm text-slate-400 transition hover:bg-slate-100"
-        >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-slate-300 text-xs">
-            —
-          </span>
-          ไม่มอบหมาย
-        </button>
+        {users.map((u) => {
+          const has = list.some((a) => a.id === u.id);
+          return (
+            <button
+              type="button"
+              key={u.id}
+              onClick={() => toggle(u)}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 transition hover:bg-slate-100"
+            >
+              <span
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                  has
+                    ? "border-brand-600 bg-brand-600 text-white"
+                    : "border-slate-300 text-transparent"
+                }`}
+              >
+                ✓
+              </span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
+                {u.name.charAt(0)}
+              </span>
+              {u.name}
+            </button>
+          );
+        })}
+        <p className="border-t border-slate-100 px-2 pb-0.5 pt-1.5 text-[10px] text-slate-400">
+          เลือกได้หลายคน — คลิกชื่อเพื่อเพิ่ม/ถอด
+        </p>
       </Dropdown>
     </div>
   );

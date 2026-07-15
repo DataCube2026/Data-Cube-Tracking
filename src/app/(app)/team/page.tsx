@@ -8,6 +8,7 @@ import {
   deleteBusinessUnit,
 } from "@/lib/actions";
 import { UserEditModal } from "@/components/UserEditModal";
+import { ConfirmButton } from "@/components/Confirm";
 import { Avatar } from "@/components/Badge";
 import { buShort } from "@/lib/constants";
 
@@ -107,15 +108,15 @@ export default async function TeamPage({
                       isSelf={u.id === me?.id}
                     />
                     {u.id !== me?.id && (
-                      <form action={deleteUser}>
-                        <input type="hidden" name="userId" value={u.id} />
-                        <button
-                          className="rounded border border-slate-200 px-2 py-1 text-xs text-brand-600 transition hover:bg-brand-50"
-                          title="ลบสมาชิก"
-                        >
-                          ลบ
-                        </button>
-                      </form>
+                      <ConfirmButton
+                        message={`ต้องการลบสมาชิก "${u.name}" (@${u.username}) ใช่ไหม? งานที่ถืออยู่จะกลายเป็น "ไม่มอบหมาย"`}
+                        confirmLabel="ลบสมาชิก"
+                        action={deleteUser}
+                        hidden={{ userId: u.id }}
+                        className="rounded border border-slate-200 px-2 py-1 text-xs text-brand-600 transition hover:bg-brand-50"
+                      >
+                        ลบ
+                      </ConfirmButton>
                     )}
                   </div>
                 )}
@@ -197,15 +198,15 @@ export default async function TeamPage({
                         {b.active ? "ปิดใช้งาน" : "เปิดใช้งาน"}
                       </button>
                     </form>
-                    <form action={deleteBusinessUnit}>
-                      <input type="hidden" name="buId" value={b.id} />
-                      <button
-                        className="rounded px-1.5 text-slate-300 transition hover:bg-slate-100 hover:text-brand-600"
-                        title="ลบ"
-                      >
-                        ×
-                      </button>
-                    </form>
+                    <ConfirmButton
+                      message={`ต้องการลบกลุ่ม BU "${b.name}" ใช่ไหม? (งานเก่าที่ใช้ BU นี้ไม่กระทบ)`}
+                      confirmLabel="ลบ BU"
+                      action={deleteBusinessUnit}
+                      hidden={{ buId: b.id }}
+                      className="rounded px-1.5 text-slate-300 transition hover:bg-slate-100 hover:text-brand-600"
+                    >
+                      ×
+                    </ConfirmButton>
                   </div>
                 ))}
               </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { quickAddTicket } from "@/lib/actions";
+import { QuickAddRow } from "@/components/QuickAddRow";
 import { STATUSES, PRIORITIES, buShort } from "@/lib/constants";
 import { IconSearch, IconDownload } from "@/components/Icons";
 import { TicketRow, type RowTicket } from "@/components/TicketRow";
@@ -9,7 +9,7 @@ import type { Ticket, User, Subtask } from "@prisma/client";
 export const dynamic = "force-dynamic";
 
 type TicketWithRelations = Ticket & {
-  assignee: User | null;
+  assignees: User[];
   _count: { comments: number };
   subtasks: (Subtask & { assignee: User | null })[];
 };
@@ -36,8 +36,9 @@ function toRow(t: TicketWithRelations): RowTicket {
     priority: t.priority,
     jobType: t.jobType,
     dueDate: t.dueDate,
+    completedAt: t.completedAt,
     commentCount: t._count.comments,
-    assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
+    assignees: t.assignees.map((a) => ({ id: a.id, name: a.name })),
     subtasks: t.subtasks.map((s) => ({
       id: s.id,
       title: s.title,
@@ -61,7 +62,7 @@ export default async function TicketsPage({
       where: {
         ...(status ? { status } : {}),
         ...(priority ? { priority } : {}),
-        ...(assignee ? { assigneeId: assignee } : {}),
+        ...(assignee ? { assignees: { some: { id: assignee } } } : {}),
         ...(bu ? { bu } : {}),
         ...(from || to
           ? {
@@ -82,7 +83,7 @@ export default async function TicketsPage({
           : {}),
       },
       include: {
-        assignee: true,
+        assignees: true,
         _count: { select: { comments: true } },
         subtasks: { include: { assignee: true }, orderBy: { createdAt: "asc" } },
       },
@@ -110,13 +111,15 @@ export default async function TicketsPage({
         key: u.id,
         label: u.name,
         color: "#579bfc",
-        items: tickets.filter((t) => t.assigneeId === u.id),
+        items: tickets.filter((t) =>
+          t.assignees.some((a) => a.id === u.id)
+        ),
       })),
       {
         key: "none",
         label: "ยังไม่มอบหมาย",
         color: "#797e93",
-        items: tickets.filter((t) => !t.assigneeId),
+        items: tickets.filter((t) => t.assignees.length === 0),
       },
     ].filter((g) => g.items.length > 0);
   } else if (groupBy === "none") {
@@ -318,50 +321,11 @@ function TicketGroup({
             {/* + เพิ่มงานด่วน */}
             <tr>
               <td colSpan={8} className="px-4 py-1.5">
-                <form action={quickAddTicket} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="hidden"
-                    name="status"
-                    value={groupBy === "status" ? group.key : "NEW"}
-                  />
-                  <span className="text-slate-400">+</span>
-                  <input
-                    name="title"
-                    placeholder="เพิ่มงาน..."
-                    className="w-64 rounded border border-transparent bg-transparent px-2 py-1 text-sm outline-none placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
-                    required
-                  />
-                  <select
-                    name="bu"
-                    defaultValue=""
-                    required
-                    className="rounded border border-transparent bg-transparent px-2 py-1 text-sm text-slate-500 outline-none focus:border-slate-300 focus:bg-white"
-                  >
-                    <option value="" disabled>กลุ่ม BU...</option>
-                    {busNames.map((b) => (
-                      <option key={b} value={b}>{buShort(b)}</option>
-                    ))}
-                  </select>
-                  <input
-                    name="customer"
-                    placeholder="ชื่อลูกค้า *"
-                    required
-                    className="w-40 rounded border border-transparent bg-transparent px-2 py-1 text-sm outline-none placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
-                  />
-                  <select
-                    name="assigneeId"
-                    defaultValue=""
-                    className="rounded border border-transparent bg-transparent px-2 py-1 text-sm text-slate-500 outline-none focus:border-slate-300 focus:bg-white"
-                  >
-                    <option value="">มอบหมายให้...</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
-                    ))}
-                  </select>
-                  <button className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                    บันทึก
-                  </button>
-                </form>
+                <QuickAddRow
+                  status={groupBy === "status" ? group.key : "NEW"}
+                  users={users}
+                  busNames={busNames}
+                />
               </td>
             </tr>
 

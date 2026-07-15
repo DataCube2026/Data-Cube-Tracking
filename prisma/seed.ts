@@ -63,7 +63,8 @@ async function main() {
         contactChannel: "LINE",
         createdAt: new Date("2026-07-06T09:00:00+07:00"),
         dueDate: new Date("2026-07-06T00:00:00+07:00"),
-        assigneeId: amm.id,
+        completedAt: new Date("2026-07-06T17:00:00+07:00"),
+        assignees: { connect: { id: amm.id } },
         createdById: eak.id,
       },
     });
@@ -82,7 +83,7 @@ async function main() {
         jobType: "Database",
         contactChannel: "ประชุม / Onsite",
         dueDate: tomorrow,
-        assigneeId: amm.id,
+        assignees: { connect: { id: amm.id } },
         createdById: eak.id,
       },
     });
@@ -121,7 +122,7 @@ async function main() {
         contactChannel: "LINE",
         contactInfo: "@Ray_RaZXiFeTy",
         dueDate: new Date(Date.now() + 3 * day),
-        assigneeId: amm.id,
+        assignees: { connect: { id: amm.id } },
         createdById: eak.id,
       },
     });

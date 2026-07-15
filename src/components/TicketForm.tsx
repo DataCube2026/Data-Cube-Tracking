@@ -7,12 +7,14 @@ export function TicketForm({
   action,
   submitLabel,
   businessUnits,
+  assignedIds = [],
 }: {
   users: User[];
   ticket?: Ticket;
   action: (formData: FormData) => Promise<void>;
   submitLabel: string;
   businessUnits: string[];
+  assignedIds?: string[];
 }) {
   // ถ้า BU เดิมของงานถูกปิดใช้งานไปแล้ว ให้ยังแสดงในตัวเลือกได้
   const buOptions =
@@ -53,13 +55,24 @@ export function TicketForm({
         </div>
 
         <div>
-          <label className="label">ผู้รับผิดชอบ</label>
-          <select name="assigneeId" defaultValue={ticket?.assigneeId ?? ""} className="input">
-            <option value="">— ยังไม่มอบหมาย —</option>
+          <label className="label">ผู้รับผิดชอบ (เลือกได้หลายคน)</label>
+          <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 bg-white p-2">
             {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
+              <label
+                key={u.id}
+                className="flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-700 transition hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  name="assignees"
+                  value={u.id}
+                  defaultChecked={assignedIds.includes(u.id)}
+                  className="accent-brand-600"
+                />
+                {u.name}
+              </label>
             ))}
-          </select>
+          </div>
         </div>
 
         {ticket && (

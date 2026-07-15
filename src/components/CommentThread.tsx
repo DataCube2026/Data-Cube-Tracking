@@ -7,6 +7,7 @@ import { fmtDateTime } from "@/lib/constants";
 import { addComment, editComment, deleteComment } from "@/lib/actions";
 import { toast } from "@/components/Toaster";
 import { IconPaperclip } from "@/components/Icons";
+import { ConfirmButton } from "@/components/Confirm";
 
 type U = { id: string; username: string; name: string };
 
@@ -137,25 +138,18 @@ function CommentItem({
             </button>
           )}
           {mine && (
-            <form
-              action={async (fd) => {
-                await deleteComment(fd);
-                router.refresh();
-                toast("ลบข้อมูลเรียบร้อยแล้ว");
-              }}
-              className="inline"
+            <ConfirmButton
+              message={
+                isReply
+                  ? "ต้องการลบการตอบกลับนี้ใช่ไหม?"
+                  : "ต้องการลบอัปเดตนี้ใช่ไหม? การตอบกลับด้านล่างจะถูกลบไปด้วย"
+              }
+              action={deleteComment}
+              hidden={{ commentId: c.id }}
+              className="hover:text-brand-600"
             >
-              <input type="hidden" name="commentId" value={c.id} />
-              <button
-                onClick={(e) => {
-                  if (!confirm("ลบอัปเดตนี้? (ตอบกลับด้านล่างจะถูกลบด้วย)"))
-                    e.preventDefault();
-                }}
-                className="hover:text-brand-600"
-              >
-                ลบ
-              </button>
-            </form>
+              ลบ
+            </ConfirmButton>
           )}
         </div>
       )}

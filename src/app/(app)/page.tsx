@@ -24,7 +24,7 @@ export default async function DashboardPage({
     prisma.ticket.findMany({
       where: {
         ...(bu ? { bu } : {}),
-        ...(assignee ? { assigneeId: assignee } : {}),
+        ...(assignee ? { assignees: { some: { id: assignee } } } : {}),
         ...(from || to
           ? {
               createdAt: {
@@ -34,7 +34,7 @@ export default async function DashboardPage({
             }
           : {}),
       },
-      include: { assignee: true },
+      include: { assignees: true },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
@@ -95,7 +95,8 @@ export default async function DashboardPage({
   const workload = users
     .map((u) => ({
       name: u.name,
-      count: active.filter((t) => t.assigneeId === u.id).length,
+      count: active.filter((t) => t.assignees.some((a) => a.id === u.id))
+        .length,
     }))
     .sort((a, b) => b.count - a.count);
   const maxLoad = Math.max(1, ...workload.map((w) => w.count));
@@ -281,7 +282,7 @@ export default async function DashboardPage({
                 <div className="mt-1 flex items-center gap-2">
                   <StatusBadge status={t.status} />
                   <span className="text-xs text-slate-400">
-                    {t.assignee?.name ?? "ยังไม่มอบหมาย"}
+                    {t.assignees.length > 0 ? t.assignees.map((a) => a.name).join(", ") : "ยังไม่มอบหมาย"}
                   </span>
                 </div>
               </Link>
@@ -303,7 +304,7 @@ export default async function DashboardPage({
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-slate-800">{t.title}</div>
                 <div className="text-xs text-slate-500">
-                  {t.customer} · {t.assignee?.name ?? "ยังไม่มอบหมาย"}
+                  {t.customer} · {t.assignees.length > 0 ? t.assignees.map((a) => a.name).join(", ") : "ยังไม่มอบหมาย"}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">

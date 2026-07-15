@@ -4,8 +4,15 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ticketCode, fmtDate, isOverdue, buShort, JOB_TYPES } from "@/lib/constants";
-import { StatusCell, PriorityCell, OwnerCell } from "@/components/Cells";
+import {
+  ticketCode,
+  fmtDate,
+  isOverdue,
+  slaInfo,
+  buShort,
+  JOB_TYPES,
+} from "@/lib/constants";
+import { StatusCell, PriorityCell, AssigneesCell } from "@/components/Cells";
 import { IconChat, IconChevronRight } from "@/components/Icons";
 import {
   addSubtask,
@@ -34,8 +41,9 @@ export type RowTicket = {
   priority: string;
   jobType: string;
   dueDate: Date | null;
+  completedAt: Date | null;
   commentCount: number;
-  assignee: { id: string; name: string } | null;
+  assignees: { id: string; name: string }[];
   subtasks: SubItem[];
 };
 
@@ -294,7 +302,7 @@ export function TicketRow({
         </td>
 
         <td className="px-3 py-2">
-          <OwnerCell ticketId={t.id} assignee={t.assignee} users={users} />
+          <AssigneesCell ticketId={t.id} assignees={t.assignees} users={users} />
         </td>
         <td className="px-1 py-1 text-center">
           <StatusCell ticketId={t.id} status={t.status} />
@@ -315,7 +323,7 @@ export function TicketRow({
           />
         </td>
 
-        {/* กำหนดส่ง: แก้ได้ */}
+        {/* กำหนดส่ง + SLA: แก้ได้ */}
         <td className="px-3 py-2 text-xs">
           <InlineDate value={t.dueDate} onSave={(v) => save({ dueDate: v || null })}>
             <span
@@ -329,12 +337,28 @@ export function TicketRow({
             >
               {t.dueDate ? fmtDate(t.dueDate) : "กำหนดวัน"}
             </span>
-            {isOverdue(t.dueDate, t.status) && (
-              <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
-                เลยกำหนด
-              </span>
-            )}
           </InlineDate>
+          {(() => {
+            if (t.status === "DONE" && t.completedAt)
+              return (
+                <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
+                  เสร็จ {fmtDate(t.completedAt)}
+                </span>
+              );
+            const sla = slaInfo(t.dueDate, t.status);
+            if (!sla) return null;
+            const cls =
+              sla.tone === "over"
+                ? "bg-brand-50 text-brand-700"
+                : sla.tone === "warn"
+                  ? "bg-amber-50 text-amber-600"
+                  : "bg-slate-100 text-slate-500";
+            return (
+              <span className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+                {sla.label}
+              </span>
+            );
+          })()}
         </td>
       </tr>
 

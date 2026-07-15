@@ -86,6 +86,23 @@ export function fmtDateTime(d: Date | string): string {
   });
 }
 
+// SLA: เหลือเวลาอีกเท่าไหร่ก่อนถึงกำหนดส่ง
+export function slaInfo(
+  dueDate: Date | string | null,
+  status: string
+): { label: string; tone: "ok" | "warn" | "over" } | null {
+  if (!dueDate || status === "DONE") return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  const days = Math.round((due.getTime() - today.getTime()) / 86400000);
+  if (days < 0) return { label: `เกินกำหนด ${-days} วัน`, tone: "over" };
+  if (days === 0) return { label: "ครบกำหนดวันนี้", tone: "warn" };
+  if (days <= 2) return { label: `เหลือ ${days} วัน`, tone: "warn" };
+  return { label: `เหลือ ${days} วัน`, tone: "ok" };
+}
+
 export function isOverdue(dueDate: Date | null, status: string): boolean {
   if (!dueDate || status === "DONE") return false;
   const today = new Date();

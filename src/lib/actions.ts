@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession, destroySession, getSession } from "@/lib/auth";
 import { ticketCode, statusOf, priorityOf } from "@/lib/constants";
+import { gdriveEnabled, uploadToDrive, deleteFromDrive } from "@/lib/gdrive";
 
 // ---------- Log & Notification helpers ----------
 
@@ -56,7 +57,7 @@ export async function updateAvatar(formData: FormData) {
   if (!file || file.size === 0 || file.size > 5 * 1024 * 1024) {
     redirect("/profile?error=avatar");
   }
-  const url = await saveUpload(file);
+  const url = await saveUpload(file, "Profile");
   await prisma.user.update({
     where: { id: session.id },
     data: { avatarUrl: url },
@@ -116,7 +117,6 @@ async function requireAdmin() {
 // ---------- Tickets ----------
 
 function ticketDataFromForm(formData: FormData) {
-  const assigneeId = String(formData.get("assigneeId") ?? "");
   const dueDate = String(formData.get("dueDate") ?? "");
   return {
     title: String(formData.get("title") ?? "").trim(),
@@ -127,9 +127,13 @@ function ticketDataFromForm(formData: FormData) {
     jobType: String(formData.get("jobType") ?? "อื่น ๆ"),
     contactChannel: String(formData.get("contactChannel") ?? "อื่น ๆ"),
     contactInfo: String(formData.get("contactInfo") ?? "").trim() || null,
-    assigneeId: assigneeId || null,
     dueDate: dueDate ? new Date(dueDate) : null,
   };
+}
+
+// รายชื่อผู้รับผิดชอบจากฟอร์ม (checkbox หลายตัวชื่อ assignees)
+function assigneeIdsFromForm(formData: FormData): string[] {
+  return (formData.getAll("assignees") as string[]).filter(Boolean);
 }
 
 async function nextTicketNumber(): Promise<number> {
@@ -142,22 +146,43 @@ export async function createTicket(formData: FormData) {
   const data = ticketDataFromForm(formData);
   if (!data.title || !data.customer) redirect("/tickets/new?error=1");
 
-  const status = String(formData.get("status") ?? "") || (data.assigneeId ? "ASSIGNED" : "NEW");
+  // กันกดบันทึกซ้ำ: ชื่องานเดียวกันจากคนเดิมภายใน 1 นาที → พาไปงานเดิมแทน
+  const dup = await prisma.ticket.findFirst({
+    where: {
+      title: data.title,
+      createdById: session.id,
+      createdAt: { gte: new Date(Date.now() - 60 * 1000) },
+    },
+  });
+  if (dup) redirect(`/tickets/${dup.id}`);
+
+  const assigneeIds = assigneeIdsFromForm(formData);
+  const status =
+    String(formData.get("status") ?? "") ||
+    (assigneeIds.length > 0 ? "ASSIGNED" : "NEW");
 
   const ticket = await prisma.ticket.create({
-    data: { ...data, status, number: await nextTicketNumber(), createdById: session.id },
+    data: {
+      ...data,
+      status,
+      number: await nextTicketNumber(),
+      createdById: session.id,
+      assignees: { connect: assigneeIds.map((id) => ({ id })) },
+    },
   });
   await logActivity(
     session.id,
     "CREATE_TICKET",
     `สร้างงาน ${ticketCode(ticket.number)}: ${ticket.title}`
   );
-  if (data.assigneeId && data.assigneeId !== session.id) {
-    await notify(
-      data.assigneeId,
-      `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
-      `/tickets/${ticket.id}`
-    );
+  for (const id of assigneeIds) {
+    if (id !== session.id) {
+      await notify(
+        id,
+        `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
+        `/tickets/${ticket.id}`
+      );
+    }
   }
   revalidatePath("/");
   redirect(`/tickets/${ticket.id}?toast=created`);
@@ -169,11 +194,21 @@ export async function quickAddTicket(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const bu = String(formData.get("bu") ?? "").trim();
   const customer = String(formData.get("customer") ?? "").trim();
-  const assigneeId = String(formData.get("assigneeId") ?? "") || null;
+  const quickAssignee = String(formData.get("assigneeId") ?? "") || null;
   let status = String(formData.get("status") ?? "NEW");
-  if (assigneeId && status === "NEW") status = "ASSIGNED";
+  if (quickAssignee && status === "NEW") status = "ASSIGNED";
   // ต้องมีชื่องานและชื่อลูกค้าเสมอ
   if (!title || !customer) return;
+
+  // กันกดบันทึกซ้ำ: ชื่องานเดียวกันจากคนเดิมภายใน 1 นาที ไม่สร้างซ้ำ
+  const dup = await prisma.ticket.findFirst({
+    where: {
+      title,
+      createdById: session.id,
+      createdAt: { gte: new Date(Date.now() - 60 * 1000) },
+    },
+  });
+  if (dup) return;
 
   const ticket = await prisma.ticket.create({
     data: {
@@ -181,12 +216,14 @@ export async function quickAddTicket(formData: FormData) {
       bu,
       customer,
       status,
-      assigneeId,
       number: await nextTicketNumber(),
       priority: "MEDIUM",
       jobType: "อื่น ๆ",
       contactChannel: "อื่น ๆ",
       createdById: session.id,
+      ...(quickAssignee
+        ? { assignees: { connect: { id: quickAssignee } } }
+        : {}),
     },
   });
   await logActivity(
@@ -194,9 +231,9 @@ export async function quickAddTicket(formData: FormData) {
     "CREATE_TICKET",
     `สร้างงาน ${ticketCode(ticket.number)}: ${title}`
   );
-  if (assigneeId && assigneeId !== session.id) {
+  if (quickAssignee && quickAssignee !== session.id) {
     await notify(
-      assigneeId,
+      quickAssignee,
       `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${title}`,
       `/tickets/${ticket.id}`
     );
@@ -209,26 +246,38 @@ export async function updateTicket(id: string, formData: FormData) {
   const session = await requireUser();
   const data = ticketDataFromForm(formData);
   const status = String(formData.get("status") ?? "NEW");
-  const before = await prisma.ticket.findUnique({ where: { id } });
+  const assigneeIds = assigneeIdsFromForm(formData);
+  const before = await prisma.ticket.findUnique({
+    where: { id },
+    include: { assignees: { select: { id: true } } },
+  });
   const ticket = await prisma.ticket.update({
     where: { id },
-    data: { ...data, status },
+    data: {
+      ...data,
+      status,
+      // เข้าสถานะเสร็จสิ้น → ตั้งวันที่เสร็จอัตโนมัติ / ออกจากเสร็จสิ้น → ล้าง
+      ...(status === "DONE"
+        ? { completedAt: before?.completedAt ?? new Date() }
+        : { completedAt: null }),
+      assignees: { set: assigneeIds.map((uid) => ({ id: uid })) },
+    },
   });
   await logActivity(
     session.id,
     "UPDATE_TICKET",
     `แก้ไขงาน ${ticketCode(ticket.number)}: ${ticket.title}`
   );
-  if (
-    data.assigneeId &&
-    data.assigneeId !== before?.assigneeId &&
-    data.assigneeId !== session.id
-  ) {
-    await notify(
-      data.assigneeId,
-      `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
-      `/tickets/${id}`
-    );
+  // แจ้งเตือนเฉพาะคนที่เพิ่งถูกเพิ่มเข้ามา
+  const beforeIds = new Set((before?.assignees ?? []).map((a) => a.id));
+  for (const uid of assigneeIds) {
+    if (!beforeIds.has(uid) && uid !== session.id) {
+      await notify(
+        uid,
+        `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
+        `/tickets/${id}`
+      );
+    }
   }
   revalidatePath("/");
   redirect(`/tickets/${id}?toast=updated`);
@@ -237,9 +286,15 @@ export async function updateTicket(id: string, formData: FormData) {
 // สำหรับ inline editing ในตาราง (คลิกเปลี่ยนได้เลยแบบ monday)
 export async function setTicketStatus(ticketId: string, status: string) {
   const session = await requireUser();
+  const before = await prisma.ticket.findUnique({ where: { id: ticketId } });
   const ticket = await prisma.ticket.update({
     where: { id: ticketId },
-    data: { status },
+    data: {
+      status,
+      ...(status === "DONE"
+        ? { completedAt: before?.completedAt ?? new Date() }
+        : { completedAt: null }),
+    },
   });
   await logActivity(
     session.id,
@@ -267,29 +322,37 @@ export async function setTicketPriority(ticketId: string, priority: string) {
   revalidatePath("/board");
 }
 
-export async function setTicketAssignee(ticketId: string, assigneeId: string | null) {
+// เพิ่ม/ถอดผู้รับผิดชอบทีละคน (มอบหมายได้หลายคน)
+export async function toggleTicketAssignee(ticketId: string, userId: string) {
   const session = await requireUser();
-  const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
-  const data: { assigneeId: string | null; status?: string } = { assigneeId };
-  // มอบหมายคนให้งานใหม่ → เปลี่ยนสถานะเป็น "มอบหมายแล้ว" อัตโนมัติ
-  if (assigneeId && ticket?.status === "NEW") data.status = "ASSIGNED";
-  await prisma.ticket.update({ where: { id: ticketId }, data });
-  if (ticket) {
-    const who = assigneeId
-      ? (await prisma.user.findUnique({ where: { id: assigneeId } }))?.name
-      : "ไม่มอบหมาย";
-    await logActivity(
-      session.id,
-      "ASSIGN",
-      `มอบหมาย ${ticketCode(ticket.number)} ให้ ${who ?? "-"}`
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: ticketId },
+    include: { assignees: { select: { id: true } } },
+  });
+  if (!ticket) return;
+  const has = ticket.assignees.some((a) => a.id === userId);
+  await prisma.ticket.update({
+    where: { id: ticketId },
+    data: {
+      assignees: has
+        ? { disconnect: { id: userId } }
+        : { connect: { id: userId } },
+      // มอบหมายคนแรกให้งานใหม่ → เปลี่ยนสถานะเป็น "มอบหมายแล้ว" อัตโนมัติ
+      ...(!has && ticket.status === "NEW" ? { status: "ASSIGNED" } : {}),
+    },
+  });
+  const u = await prisma.user.findUnique({ where: { id: userId } });
+  await logActivity(
+    session.id,
+    "ASSIGN",
+    `${has ? "ถอด" : "มอบหมาย"} ${u?.name ?? "-"} ${has ? "ออกจาก" : "ให้"}งาน ${ticketCode(ticket.number)}`
+  );
+  if (!has && userId !== session.id) {
+    await notify(
+      userId,
+      `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
+      `/tickets/${ticketId}`
     );
-    if (assigneeId && assigneeId !== session.id) {
-      await notify(
-        assigneeId,
-        `${session.name} มอบหมายงาน ${ticketCode(ticket.number)}: ${ticket.title}`,
-        `/tickets/${ticketId}`
-      );
-    }
   }
   revalidatePath("/");
   revalidatePath("/tickets");
@@ -300,7 +363,16 @@ export async function updateStatus(formData: FormData) {
   const session = await requireUser();
   const id = String(formData.get("ticketId"));
   const status = String(formData.get("status"));
-  const ticket = await prisma.ticket.update({ where: { id }, data: { status } });
+  const before = await prisma.ticket.findUnique({ where: { id } });
+  const ticket = await prisma.ticket.update({
+    where: { id },
+    data: {
+      status,
+      ...(status === "DONE"
+        ? { completedAt: before?.completedAt ?? new Date() }
+        : { completedAt: null }),
+    },
+  });
   await logActivity(
     session.id,
     "UPDATE_STATUS",
@@ -332,6 +404,7 @@ export async function updateInfo(formData: FormData) {
   const session = await requireUser();
   const id = String(formData.get("ticketId"));
   const dueDate = String(formData.get("dueDate") ?? "");
+  const completedAt = String(formData.get("completedAt") ?? "");
   const ticket = await prisma.ticket.update({
     where: { id },
     data: {
@@ -341,6 +414,7 @@ export async function updateInfo(formData: FormData) {
       contactChannel: String(formData.get("contactChannel") ?? ""),
       contactInfo: String(formData.get("contactInfo") ?? "").trim() || null,
       dueDate: dueDate ? new Date(dueDate) : null,
+      completedAt: completedAt ? new Date(completedAt) : null,
     },
   });
   await logActivity(
@@ -463,18 +537,62 @@ export async function deleteSubtask(formData: FormData) {
 
 // ---------- Attachments (ไฟล์แนบ / ลิงก์) ----------
 
-// บันทึกไฟล์ลง public/uploads แล้วคืน URL
-async function saveUpload(file: File): Promise<string> {
+// บันทึกไฟล์แนบ — ลำดับ: Google Drive (โฟลเดอร์ย่อยตามเลขงาน) → Supabase Storage → เครื่อง (dev)
+async function saveUpload(file: File, folder = "General"): Promise<string> {
+  if (gdriveEnabled()) {
+    return uploadToDrive(file, folder);
+  }
+
   const buf = Buffer.from(await file.arrayBuffer());
-  const dir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(dir, { recursive: true });
   const safe = file.name.replace(/[^\w.฀-๿-]+/g, "_");
   const fname = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`;
+
+  const supaUrl = process.env.SUPABASE_URL;
+  const supaKey = process.env.SUPABASE_SERVICE_KEY;
+  if (supaUrl && supaKey) {
+    const res = await fetch(
+      `${supaUrl}/storage/v1/object/attachments/${encodeURIComponent(fname)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${supaKey}`,
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: buf,
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`อัปโหลดไฟล์ไม่สำเร็จ: ${await res.text()}`);
+    }
+    return `${supaUrl}/storage/v1/object/public/attachments/${encodeURIComponent(fname)}`;
+  }
+
+  // fallback: เก็บลงเครื่อง (โหมด dev)
+  const dir = path.join(process.cwd(), "public", "uploads");
+  await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, fname), buf);
   return `/uploads/${fname}`;
 }
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+// ลบไฟล์จริงตามที่เก็บ (Drive / Storage / disk)
+async function removeUploadedFile(url: string) {
+  const supaUrl = process.env.SUPABASE_URL;
+  const supaKey = process.env.SUPABASE_SERVICE_KEY;
+  if (url.includes("drive.google.com")) {
+    await deleteFromDrive(url);
+  } else if (url.startsWith("/uploads/")) {
+    await unlink(path.join(process.cwd(), "public", url)).catch(() => {});
+  } else if (supaUrl && supaKey && url.includes("/attachments/")) {
+    const fname = url.split("/attachments/")[1];
+    await fetch(`${supaUrl}/storage/v1/object/attachments/${fname}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${supaKey}` },
+    }).catch(() => {});
+  }
+}
+
+// จำกัด 4MB ตามเพดานของ Vercel — ไฟล์ใหญ่กว่านี้ให้ใช้ "เพิ่มลิงก์" (Google Drive)
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
 
 export async function addAttachment(formData: FormData) {
   const session = await requireUser();
@@ -491,10 +609,15 @@ export async function addAttachment(formData: FormData) {
   } else {
     const file = formData.get("file") as File | null;
     if (!file || file.size === 0 || file.size > MAX_FILE_SIZE) return;
-    const url = await saveUpload(file);
-    await prisma.attachment.create({
-      data: { ticketId, kind: "file", name: file.name, url, uploaderId: session.id },
-    });
+    const tk = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    try {
+      const url = await saveUpload(file, tk ? ticketCode(tk.number) : "General");
+      await prisma.attachment.create({
+        data: { ticketId, kind: "file", name: file.name, url, uploaderId: session.id },
+      });
+    } catch {
+      redirect(`/tickets/${ticketId}`);
+    }
   }
   revalidatePath(`/tickets/${ticketId}`);
   redirect(`/tickets/${ticketId}?toast=added`);
@@ -506,7 +629,7 @@ export async function deleteAttachment(formData: FormData) {
   const att = await prisma.attachment.findUnique({ where: { id } });
   if (!att) return;
   if (att.kind === "file") {
-    await unlink(path.join(process.cwd(), "public", att.url)).catch(() => {});
+    await removeUploadedFile(att.url);
   }
   await prisma.attachment.delete({ where: { id } });
   revalidatePath(`/tickets/${att.ticketId}`);
@@ -525,6 +648,9 @@ export async function addComment(formData: FormData) {
   );
   if (!body && files.length === 0) return;
 
+  const ticketRec = await prisma.ticket.findUnique({ where: { id: ticketId } });
+  const driveFolder = ticketRec ? ticketCode(ticketRec.number) : "General";
+
   const comment = await prisma.comment.create({
     data: { ticketId, parentId, body: body || "(แนบไฟล์)", authorId: session.id },
   });
@@ -542,19 +668,29 @@ export async function addComment(formData: FormData) {
     }
   }
 
+  let failedFiles = 0;
   for (const file of files) {
-    if (file.size > MAX_FILE_SIZE) continue;
-    const url = await saveUpload(file);
-    await prisma.attachment.create({
-      data: {
-        ticketId,
-        commentId: comment.id,
-        kind: "file",
-        name: file.name,
-        url,
-        uploaderId: session.id,
-      },
-    });
+    if (file.size > MAX_FILE_SIZE) {
+      failedFiles++;
+      continue;
+    }
+    try {
+      const url = await saveUpload(file, driveFolder);
+      await prisma.attachment.create({
+        data: {
+          ticketId,
+          commentId: comment.id,
+          kind: "file",
+          name: file.name,
+          url,
+          uploaderId: session.id,
+        },
+      });
+    } catch (e) {
+      // ไฟล์ไหนอัปโหลดไม่สำเร็จ ข้ามไฟล์นั้น — ข้อความยังโพสต์ได้ แต่แจ้งกลับไปให้ผู้ใช้รู้
+      failedFiles++;
+      console.error("[upload] แนบไฟล์ไม่สำเร็จ:", e);
+    }
   }
 
   const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
@@ -584,6 +720,7 @@ export async function addComment(formData: FormData) {
     }
   }
   revalidatePath(`/tickets/${ticketId}`);
+  return { failed: failedFiles };
 }
 
 // แก้ไขอัปเดต — เฉพาะเจ้าของเท่านั้น
@@ -709,8 +846,7 @@ export async function deleteUser(formData: FormData) {
   ]);
   if (created + comments + attachments > 0) redirect("/team?error=hasdata");
 
-  // ปลดงานที่ถูกมอบหมายให้กลายเป็น "ไม่มอบหมาย" ก่อนลบ
-  await prisma.ticket.updateMany({ where: { assigneeId: id }, data: { assigneeId: null } });
+  // ปลดงานย่อยที่ถูกมอบหมาย (งานหลักถูกปลดอัตโนมัติจากความสัมพันธ์)
   await prisma.subtask.updateMany({ where: { assigneeId: id }, data: { assigneeId: null } });
 
   const u = await prisma.user.findUnique({ where: { id } });

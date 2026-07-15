@@ -9,7 +9,6 @@ import {
   addSubtask,
   toggleSubtask,
   deleteSubtask,
-  addAttachment,
   deleteAttachment,
 } from "@/lib/actions";
 import { IconPaperclip, IconLink } from "@/components/Icons";
@@ -17,6 +16,7 @@ import {
   fmtDate,
   fmtDateTime,
   isOverdue,
+  slaInfo,
   ticketCode,
   buShort,
   JOB_TYPES,
@@ -25,12 +25,14 @@ import {
 import {
   StatusCell,
   PriorityCell,
-  OwnerCell,
+  AssigneesCell,
   StatusProgress,
 } from "@/components/Cells";
 import { CommentBox } from "@/components/CommentBox";
 import { CommentThread } from "@/components/CommentThread";
 import { TicketForm } from "@/components/TicketForm";
+import { ConfirmButton } from "@/components/Confirm";
+import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +46,7 @@ export default async function TicketDetailPage({
     prisma.ticket.findUnique({
       where: { id: params.id },
       include: {
-        assignee: true,
+        assignees: true,
         createdBy: true,
         comments: {
           where: { parentId: null },
@@ -84,6 +86,10 @@ export default async function TicketDetailPage({
   const dueStr = ticket.dueDate
     ? new Date(ticket.dueDate).toISOString().slice(0, 10)
     : "";
+  const completedStr = ticket.completedAt
+    ? new Date(ticket.completedAt).toISOString().slice(0, 10)
+    : "";
+  const sla = slaInfo(ticket.dueDate, ticket.status);
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -103,10 +109,15 @@ export default async function TicketDetailPage({
             สร้างเมื่อ {fmtDate(ticket.createdAt)} โดย {ticket.createdBy.name}
           </p>
         </div>
-        <form action={deleteTicket}>
-          <input type="hidden" name="ticketId" value={ticket.id} />
-          <button className="btn-secondary text-brand-600 hover:bg-brand-50">ลบงาน</button>
-        </form>
+        <ConfirmButton
+          message={`ต้องการลบงาน ${ticketCode(ticket.number)} "${ticket.title}" ใช่ไหม? งานย่อย อัปเดต และไฟล์แนบทั้งหมดจะถูกลบไปด้วย`}
+          confirmLabel="ลบงาน"
+          action={deleteTicket}
+          hidden={{ ticketId: ticket.id }}
+          className="btn-secondary text-brand-600 hover:bg-brand-50"
+        >
+          ลบงาน
+        </ConfirmButton>
       </div>
 
       {/* แถบความคืบหน้าสถานะ */}
@@ -131,14 +142,13 @@ export default async function TicketDetailPage({
               <input type="hidden" name="ticketId" value={ticket.id} />
               <div className="grid grid-cols-2 gap-x-4 gap-y-4 md:grid-cols-3">
                 <div>
-                  <div className="label">ผู้รับผิดชอบ</div>
-                  <OwnerCell
+                  <div className="label">ผู้รับผิดชอบ (หลายคนได้)</div>
+                  <AssigneesCell
                     ticketId={ticket.id}
-                    assignee={
-                      ticket.assignee
-                        ? { id: ticket.assignee.id, name: ticket.assignee.name }
-                        : null
-                    }
+                    assignees={ticket.assignees.map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                    }))}
                     users={userOpts}
                   />
                 </div>
@@ -193,9 +203,17 @@ export default async function TicketDetailPage({
                 <div>
                   <div className="label">
                     กำหนดส่ง
-                    {isOverdue(ticket.dueDate, ticket.status) && (
-                      <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
-                        เลยกำหนด
+                    {sla && (
+                      <span
+                        className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          sla.tone === "over"
+                            ? "bg-brand-50 text-brand-700"
+                            : sla.tone === "warn"
+                              ? "bg-amber-50 text-amber-600"
+                              : "bg-emerald-50 text-emerald-600"
+                        }`}
+                      >
+                        SLA: {sla.label}
                       </span>
                     )}
                   </div>
@@ -203,6 +221,20 @@ export default async function TicketDetailPage({
                     name="dueDate"
                     type="date"
                     defaultValue={dueStr}
+                    className="input px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <div className="label">
+                    วันที่เสร็จสิ้น
+                    <span className="ml-1 text-[10px] font-normal text-slate-400">
+                      (ตั้งอัตโนมัติเมื่อสถานะเสร็จสิ้น)
+                    </span>
+                  </div>
+                  <input
+                    name="completedAt"
+                    type="date"
+                    defaultValue={completedStr}
                     className="input px-3 py-1.5 text-sm"
                   />
                 </div>
@@ -293,47 +325,7 @@ export default async function TicketDetailPage({
               )}
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <form
-                action={addAttachment}
-                className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 p-2.5"
-              >
-                <input type="hidden" name="ticketId" value={ticket.id} />
-                <input type="hidden" name="kind" value="file" />
-                <input
-                  type="file"
-                  name="file"
-                  required
-                  className="min-w-0 flex-1 text-xs text-slate-500 file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-xs file:text-slate-600"
-                />
-                <button className="btn-secondary shrink-0 px-3 py-1.5 text-xs">
-                  อัปโหลด
-                </button>
-              </form>
-              <form
-                action={addAttachment}
-                className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 p-2.5"
-              >
-                <input type="hidden" name="ticketId" value={ticket.id} />
-                <input type="hidden" name="kind" value="link" />
-                <input
-                  name="url"
-                  type="url"
-                  required
-                  placeholder="https://..."
-                  className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-brand-500"
-                />
-                <input
-                  name="name"
-                  placeholder="ชื่อลิงก์"
-                  className="w-24 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-brand-500"
-                />
-                <button className="btn-secondary shrink-0 px-3 py-1.5 text-xs">
-                  เพิ่มลิงก์
-                </button>
-              </form>
-            </div>
-            <p className="mt-2 text-xs text-slate-400">ไฟล์ขนาดไม่เกิน 20MB</p>
+            <AttachmentUpload ticketId={ticket.id} />
           </div>
 
           {/* งานย่อย */}
@@ -442,6 +434,7 @@ export default async function TicketDetailPage({
                 action={updateTicketWithId}
                 submitLabel="บันทึกการแก้ไข"
                 businessUnits={busNames}
+                assignedIds={ticket.assignees.map((a) => a.id)}
               />
             </div>
           </details>

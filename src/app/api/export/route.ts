@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     where: {
       ...(status ? { status } : {}),
       ...(priority ? { priority } : {}),
-      ...(assignee ? { assigneeId: assignee } : {}),
+      ...(assignee ? { assignees: { some: { id: assignee } } } : {}),
       ...(bu ? { bu } : {}),
       ...(from || to
         ? {
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
         : {}),
     },
     include: {
-      assignee: true,
+      assignees: true,
       createdBy: true,
       subtasks: true,
       _count: { select: { comments: true } },
@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     "ข้อมูลติดต่อ",
     "วันที่สร้าง",
     "กำหนดส่ง",
+    "วันที่เสร็จสิ้น",
     "งานย่อยเสร็จ",
     "งานย่อยทั้งหมด",
     "จำนวนอัปเดต",
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
     t.title,
     t.bu,
     t.customer,
-    t.assignee?.name ?? "",
+    t.assignees.map((a) => a.name).join(", "),
     statusOf(t.status).label,
     priorityOf(t.priority).label,
     t.jobType,
@@ -95,6 +96,7 @@ export async function GET(req: NextRequest) {
     t.contactInfo ?? "",
     fmt(t.createdAt),
     fmt(t.dueDate),
+    fmt(t.completedAt),
     t.subtasks.filter((s) => s.done).length,
     t.subtasks.length,
     t._count.comments,

@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addComment } from "@/lib/actions";
 import { IconPaperclip } from "@/components/Icons";
-import { toast } from "@/components/Toaster";
+import { toast, toastLoading } from "@/components/Toaster";
 
 type U = { id: string; username: string; name: string };
 
@@ -20,6 +20,7 @@ export function CommentBox({
   const [mention, setMention] = useState<string | null>(null);
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -65,7 +66,20 @@ export function CommentBox({
     if (!input) return;
     const dt = new DataTransfer();
     Array.from(input.files ?? []).forEach((f) => dt.items.add(f));
-    Array.from(list).forEach((f) => dt.items.add(f));
+    let rejected = false;
+    Array.from(list).forEach((f) => {
+      // ไฟล์ใหญ่เกิน 4MB — แนะนำใช้ลิงก์ Google Drive แทน
+      if (f.size > 4 * 1024 * 1024) {
+        rejected = true;
+        return;
+      }
+      dt.items.add(f);
+    });
+    if (rejected) {
+      toast(
+        "ไฟล์ใหญ่เกิน 4MB — แนะนำอัปโหลดขึ้น Google Drive แล้วใช้ \"เพิ่มลิงก์\" ในการ์ดไฟล์แนบแทน"
+      );
+    }
     input.files = dt.files;
     syncNames();
   }
@@ -84,12 +98,30 @@ export function CommentBox({
   return (
     <form
       action={async (fd) => {
-        await addComment(fd);
-        setText("");
-        if (fileRef.current) fileRef.current.value = "";
-        setFileNames([]);
-        router.refresh();
-        toast("โพสต์อัปเดตเรียบร้อยแล้ว");
+        if (busy) return; // กันกดโพสต์ซ้ำ
+        setBusy(true);
+        const nFiles = fileRef.current?.files?.length ?? 0;
+        toastLoading(
+          nFiles > 0
+            ? `กำลังอัปโหลดไฟล์ ${nFiles} ไฟล์ขึ้น Google Drive...`
+            : "กำลังโพสต์อัปเดต..."
+        );
+        try {
+          const res = await addComment(fd);
+          setText("");
+          if (fileRef.current) fileRef.current.value = "";
+          setFileNames([]);
+          router.refresh();
+          if (res && res.failed > 0) {
+            toast(
+              `โพสต์แล้ว แต่แนบไฟล์ไม่สำเร็จ ${res.failed} ไฟล์ — แจ้งแอดมินตรวจการตั้งค่า Google Drive`
+            );
+          } else {
+            toast("โพสต์อัปเดตเรียบร้อยแล้ว");
+          }
+        } finally {
+          setBusy(false);
+        }
       }}
       className="relative mb-4 space-y-2"
     >
@@ -146,7 +178,21 @@ export function CommentBox({
         name="files"
         multiple
         className="hidden"
-        onChange={syncNames}
+        onChange={(e) => {
+          const input = e.currentTarget;
+          const ok = Array.from(input.files ?? []).filter(
+            (f) => f.size <= 4 * 1024 * 1024
+          );
+          if (ok.length !== (input.files?.length ?? 0)) {
+            const dt = new DataTransfer();
+            ok.forEach((f) => dt.items.add(f));
+            input.files = dt.files;
+            toast(
+              "ไฟล์ใหญ่เกิน 4MB — แนะนำอัปโหลดขึ้น Google Drive แล้วใช้ \"เพิ่มลิงก์\" แทน"
+            );
+          }
+          syncNames();
+        }}
       />
 
       {fileNames.length > 0 && (
@@ -176,12 +222,14 @@ export function CommentBox({
           type="button"
           onClick={() => fileRef.current?.click()}
           className="btn-secondary px-3"
-          title="แนบไฟล์ (ไม่เกิน 20MB ต่อไฟล์)"
+          title="แนบไฟล์ (ไม่เกิน 4MB ต่อไฟล์ — ไฟล์ใหญ่ใช้ลิงก์ Google Drive)"
         >
           <IconPaperclip size={15} />
           แนบไฟล์
         </button>
-        <button className="btn-primary flex-1">โพสต์อัปเดต</button>
+        <button disabled={busy} className="btn-primary flex-1">
+          {busy ? "กำลังโพสต์..." : "โพสต์อัปเดต"}
+        </button>
       </div>
     </form>
   );

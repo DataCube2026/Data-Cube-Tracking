@@ -24,7 +24,7 @@ model User {
   createdAt          DateTime @default(now())
   notifications      Notification[]
   activities         ActivityLog[]
-  assignedTickets Ticket[] @relation("Assignee")
+  assignedTickets Ticket[] @relation("TicketAssignees")
   createdTickets  Ticket[] @relation("Creator")
   comments        Comment[]
   subtasks        Subtask[] @relation("SubtaskAssignee")
@@ -44,10 +44,11 @@ model Ticket {
   contactChannel String                          // ดู CHANNELS ใน constants.ts
   contactInfo    String?
   dueDate        DateTime?
+  completedAt    DateTime? // วันที่เสร็จสิ้นจริง — ตั้งอัตโนมัติเมื่อสถานะเป็น "เสร็จสิ้น" หรือกรอกเอง
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-  assignee       User?     @relation("Assignee", fields: [assigneeId], references: [id])
-  assigneeId     String?
+  // ผู้รับผิดชอบ — มอบหมายได้หลายคนต่องาน
+  assignees      User[]    @relation("TicketAssignees")
   createdBy      User      @relation("Creator", fields: [createdById], references: [id])
   createdById    String
   comments       Comment[]
