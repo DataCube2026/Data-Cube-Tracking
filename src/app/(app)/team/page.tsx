@@ -6,6 +6,7 @@ import {
   addBusinessUnit,
   toggleBusinessUnit,
   deleteBusinessUnit,
+  saveNotificationSettings,
 } from "@/lib/actions";
 import { UserEditModal } from "@/components/UserEditModal";
 import { ConfirmButton } from "@/components/Confirm";
@@ -29,7 +30,7 @@ export default async function TeamPage({
   searchParams: { error?: string };
 }) {
   const session = await getSession();
-  const [users, me, bus] = await Promise.all([
+  const [users, me, bus, notificationSettings] = await Promise.all([
     prisma.user.findMany({
       include: {
         _count: { select: { assignedTickets: true } },
@@ -39,6 +40,11 @@ export default async function TeamPage({
     }),
     prisma.user.findUnique({ where: { id: session?.id ?? "" } }),
     prisma.businessUnit.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.notificationSettings.upsert({
+      where: { id: "default" },
+      update: {},
+      create: { id: "default" },
+    }),
   ]);
   const isAdmin = me?.role === "ADMIN";
 
@@ -218,6 +224,48 @@ export default async function TeamPage({
                   className="input flex-1"
                 />
                 <button className="btn-secondary shrink-0">เพิ่ม</button>
+              </form>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="card p-5">
+              <h2 className="mb-1 font-semibold text-slate-900">Notification & SLA</h2>
+              <p className="mb-4 text-xs text-slate-400">
+                ตั้งกติกาแจ้งเตือนในระบบ ผู้เกี่ยวข้องกับงานจะได้รับก่อน escalation
+              </p>
+              <form action={saveNotificationSettings} className="space-y-4">
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  {[
+                    ["notifyAssignment", "แจ้งเมื่อมอบหมายงาน"],
+                    ["notifyStatusChange", "แจ้งเมื่อเปลี่ยนสถานะ"],
+                    ["notifyComment", "แจ้งเมื่อมี comment/reply"],
+                    ["notifyMention", "แจ้งเมื่อถูก @mention"],
+                    ["notifyDueSoon", "แจ้งงานใกล้ครบกำหนด"],
+                    ["notifyOverdue", "แจ้งงานเกินกำหนด"],
+                  ].map(([name, label]) => (
+                    <label key={name} className="flex items-center gap-2 text-slate-700">
+                      <input
+                        type="checkbox"
+                        name={name}
+                        defaultChecked={notificationSettings[name as keyof typeof notificationSettings] === true}
+                        className="h-4 w-4 accent-brand-600"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="label">
+                    เตือนล่วงหน้า (ชั่วโมง)
+                    <input name="dueSoonHours" type="number" min="1" max="720" defaultValue={notificationSettings.dueSoonHours} className="input mt-1" />
+                  </label>
+                  <label className="label">
+                    Escalate ถึง Admin หลัง overdue (ชั่วโมง)
+                    <input name="overdueEscalationHours" type="number" min="1" max="720" defaultValue={notificationSettings.overdueEscalationHours} className="input mt-1" />
+                  </label>
+                </div>
+                <button className="btn-primary">บันทึกการตั้งค่า</button>
               </form>
             </div>
           )}

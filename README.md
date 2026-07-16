@@ -52,6 +52,41 @@ npm run dev
 
 สรุปสั้น: สร้าง project บน Supabase → เติม `DATABASE_URL` / `DIRECT_URL` / `AUTH_SECRET` ใน `.env` (ดูตัวอย่างจาก `.env.example`) → `npm run db:setup` → push โค้ดขึ้น GitHub → deploy บน Vercel หรือ server บริษัท
 
+## Deploy ด้วย Docker Compose (PostgreSQL ในเครื่อง)
+
+วิธีนี้รันทั้งเว็บและ PostgreSQL บน Docker เครื่องเดียวกัน ข้อมูลฐานข้อมูลและไฟล์แนบจะอยู่ใน Docker volumes จึงไม่หายเมื่อ restart หรือ build image ใหม่
+
+1. เปิด Docker Desktop ให้ Docker Engine ทำงาน
+2. สร้างไฟล์ environment จากตัวอย่าง:
+
+   ```powershell
+   Copy-Item .env.docker.example .env
+   ```
+
+3. แก้ `POSTGRES_PASSWORD` และ `AUTH_SECRET` ใน `.env` ให้เป็นค่าที่ปลอดภัย (`POSTGRES_PASSWORD` ต้องเป็น URL-safe เช่น ตัวอักษร ตัวเลข `-` และ `_`)
+4. เริ่มระบบ:
+
+   ```powershell
+   docker compose up -d --build
+   ```
+
+5. เปิด `http://localhost:3000` แล้ว login ด้วยบัญชี seed จากด้านล่าง จากนั้นให้เปลี่ยนรหัสผ่านทันที
+
+คำสั่งดูสถานะและ logs:
+
+```powershell
+docker compose ps
+docker compose logs -f app
+```
+
+หยุดระบบโดยไม่ลบข้อมูล:
+
+```powershell
+docker compose down
+```
+
+ห้ามใช้ `docker compose down --volumes` บนระบบจริง เพราะจะลบ PostgreSQL และไฟล์แนบทั้งหมด
+
 ## คำสั่งที่ใช้บ่อย
 
 | คำสั่ง | ทำอะไร |

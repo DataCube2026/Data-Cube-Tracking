@@ -1,0 +1,13 @@
+.git
+.gitignore
+.next
+node_modules
+npm-debug.log*
+.env
+.env.*
+!.env.docker.example
+public/uploads
+README.md
+DEPLOY.md
+SETUP-*.md
+*.bat

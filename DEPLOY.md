@@ -93,3 +93,26 @@ pm2 save && pm2 startup
 | แก้ schema ฐานข้อมูล | `npx prisma db push` (รันจากเครื่องไหนก็ได้ที่มี .env) |
 | ดู/แก้ข้อมูลใน Supabase | Supabase Dashboard → Table Editor หรือ `npm run db:studio` |
 | เพิ่มผู้ใช้ | หน้า "ทีมงาน" ในระบบ (คนใหม่ถูกบังคับตั้งรหัสผ่านเองตอน login ครั้งแรก) |
+
+---
+
+## ทางเลือก C: Docker Compose + PostgreSQL ในเครื่อง
+
+สำหรับ server บริษัทที่ต้องการเก็บทั้งแอป ฐานข้อมูล และไฟล์แนบไว้บนเครื่องเดียวกัน ให้ใช้ Docker Compose:
+
+```powershell
+Copy-Item .env.docker.example .env
+# แก้ POSTGRES_PASSWORD และ AUTH_SECRET ใน .env
+docker compose up -d --build
+```
+
+ระบบจะเปิดที่ `http://SERVER-IP:3000` และเก็บข้อมูลไว้ใน Docker volumes ชื่อ `datacube-tracker_postgres_data` และ `datacube-tracker_uploads_data` โดย PostgreSQL จะไม่เปิดพอร์ตออกนอก Docker network
+
+ดูสถานะและ log:
+
+```powershell
+docker compose ps
+docker compose logs -f app
+```
+
+ก่อน update image ให้สำรอง volume ทั้งสองชุด ห้ามใช้ `docker compose down --volumes` บน production เพราะจะลบฐานข้อมูลและไฟล์แนบทั้งหมด

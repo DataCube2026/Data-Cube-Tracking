@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { createSession, destroySession, getSession } from "@/lib/auth";
 import { ticketCode, statusOf, priorityOf } from "@/lib/constants";
 import { gdriveEnabled, uploadToDrive, deleteFromDrive } from "@/lib/gdrive";
+import { relatedTicketUserIds, sendTicketNotification, type NotificationEvent } from "@/lib/notifications";
 
 // ---------- Log & Notification helpers ----------
 
@@ -16,8 +17,19 @@ async function logActivity(userId: string, action: string, detail: string) {
   await prisma.activityLog.create({ data: { userId, action, detail } });
 }
 
-async function notify(userId: string, message: string, url: string) {
-  await prisma.notification.create({ data: { userId, message, url } });
+async function notify(
+  userId: string,
+  message: string,
+  url: string,
+  type: NotificationEvent = "ASSIGNMENT",
+  actorId?: string
+) {
+  const ticketId = url.match(/^\/tickets\/([^/?]+)/)?.[1];
+  if (ticketId) {
+    await sendTicketNotification({ ticketId, actorId, type, message, url, recipientIds: [userId] });
+    return;
+  }
+  await prisma.notification.create({ data: { userId, message, url, type } });
 }
 
 // ---------- Auth ----------
@@ -301,6 +313,13 @@ export async function setTicketStatus(ticketId: string, status: string) {
     "UPDATE_STATUS",
     `เปลี่ยนสถานะ ${ticketCode(ticket.number)} เป็น "${statusOf(status).label}"`
   );
+  await sendTicketNotification({
+    ticketId,
+    actorId: session.id,
+    type: "STATUS_CHANGE",
+    message: `${session.name} เปลี่ยนสถานะ ${ticketCode(ticket.number)} เป็น "${statusOf(status).label}"`,
+    recipientIds: await relatedTicketUserIds(ticketId),
+  });
   revalidatePath("/");
   revalidatePath("/tickets");
   revalidatePath("/board");
@@ -378,6 +397,13 @@ export async function updateStatus(formData: FormData) {
     "UPDATE_STATUS",
     `เปลี่ยนสถานะ ${ticketCode(ticket.number)} เป็น "${statusOf(status).label}"`
   );
+  await sendTicketNotification({
+    ticketId: id,
+    actorId: session.id,
+    type: "STATUS_CHANGE",
+    message: `${session.name} เปลี่ยนสถานะ ${ticketCode(ticket.number)} เป็น "${statusOf(status).label}"`,
+    recipientIds: await relatedTicketUserIds(id),
+  });
   revalidatePath("/");
   revalidatePath("/board");
   revalidatePath(`/tickets/${id}`);
@@ -894,4 +920,30 @@ export async function deleteBusinessUnit(formData: FormData) {
   await logActivity(session.id, "UPDATE_BU", `ลบกลุ่ม BU: ${bu.name}`);
   revalidatePath("/", "layout");
   redirect("/team?toast=done");
+}
+
+// ---------- Notification settings (admin only) ----------
+
+export async function saveNotificationSettings(formData: FormData) {
+  await requireAdmin();
+  const checked = (name: string) => formData.get(name) === "on";
+  const hours = (name: string, fallback: number) => {
+    const value = Number(formData.get(name));
+    return Number.isFinite(value) ? Math.max(1, Math.min(720, Math.floor(value))) : fallback;
+  };
+  await prisma.notificationSettings.upsert({
+    where: { id: "default" },
+    update: {
+      notifyAssignment: checked("notifyAssignment"),
+      notifyStatusChange: checked("notifyStatusChange"),
+      notifyComment: checked("notifyComment"),
+      notifyMention: checked("notifyMention"),
+      notifyDueSoon: checked("notifyDueSoon"),
+      notifyOverdue: checked("notifyOverdue"),
+      dueSoonHours: hours("dueSoonHours", 48),
+      overdueEscalationHours: hours("overdueEscalationHours", 24),
+    },
+    create: { id: "default" },
+  });
+  revalidatePath("/team");
 }

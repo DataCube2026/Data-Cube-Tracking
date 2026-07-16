@@ -54,6 +54,7 @@ model Ticket {
   comments       Comment[]
   subtasks       Subtask[]
   attachments    Attachment[]
+  notifications  Notification[]
 }
 
 // กลุ่ม BU ลูกค้า — เพิ่ม/ลด/เปิดปิดได้จากหน้า "ทีมงาน" (เฉพาะแอดมิน)
@@ -69,10 +70,32 @@ model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String?
+  type      String   @default("SYSTEM")
+  dedupeKey String?
   message   String
   url       String?
   read      Boolean  @default(false)
+  readAt    DateTime?
   createdAt DateTime @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([ticketId, createdAt])
+}
+
+// Global notification/SLA configuration. There is exactly one row: id = "default".
+model NotificationSettings {
+  id                      String  @id @default("default")
+  notifyAssignment        Boolean @default(true)
+  notifyStatusChange      Boolean @default(true)
+  notifyComment           Boolean @default(true)
+  notifyMention           Boolean @default(true)
+  notifyDueSoon           Boolean @default(true)
+  notifyOverdue           Boolean @default(true)
+  dueSoonHours            Int     @default(48)
+  overdueEscalationHours  Int     @default(24)
+  updatedAt               DateTime @updatedAt
 }
 
 // บันทึกการใช้งานทั้งหมด (ใครทำอะไร เมื่อไหร่)

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   experimental: {
     serverActions: {
       // ยอมรับไฟล์แนบได้ถึง ~4MB (เพดานของ Vercel)

@@ -1,0 +1,69 @@
+name: datacube-tracker
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-datacube_tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-datacube}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Bangkok}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - backend
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # POSTGRES_PASSWORD must be URL-safe because it is embedded in this URI.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-datacube}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datacube_tracker}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-datacube}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datacube_tracker}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      SEED_DATABASE: ${SEED_DATABASE:-true}
+      TZ: ${TZ:-Asia/Bangkok}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads_data:/app/public/uploads
+    networks:
+      - backend
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-datacube}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datacube_tracker}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-datacube}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datacube_tracker}?schema=public
+      TZ: ${TZ:-Asia/Bangkok}
+    entrypoint: ["sh", "-c", "while true; do ./node_modules/.bin/tsx scripts/check-sla.ts; sleep 3600; done"]
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+networks:
+  backend:
+    driver: bridge

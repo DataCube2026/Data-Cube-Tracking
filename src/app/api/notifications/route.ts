@@ -31,12 +31,12 @@ export async function POST(req: NextRequest) {
   if (body.all) {
     await prisma.notification.updateMany({
       where: { userId: session.id, read: false },
-      data: { read: true },
+        data: { read: true, readAt: new Date() },
     });
   } else if (body.id) {
     await prisma.notification.updateMany({
       where: { id: String(body.id), userId: session.id },
-      data: { read: true },
+        data: { read: true, readAt: new Date() },
     });
   }
   return NextResponse.json({ ok: true });
